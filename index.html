@@ -691,6 +691,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .set-tpl-row:first-child{border-top:none}
 .set-tpl-thumb{width:52px;height:40px;border-radius:6px;object-fit:cover;background:var(--bg1,#0f172a);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:18px}
 .set-sec-head{cursor:pointer;user-select:none;padding:10px 4px;margin:4px 0}
+.ord-item{display:flex;align-items:center;gap:8px;cursor:grab;background:var(--bg2,#1e293b);border-radius:8px;margin-bottom:4px;padding:6px 8px}
+.ord-item.ord-drag{opacity:.5;border:1px dashed var(--accent)}
+.ord-grip{color:#64748b;font-size:16px;cursor:grab;touch-action:none;padding:0 2px}
+#map-champ-panel{position:absolute;top:calc(env(safe-area-inset-top) + 152px);left:10px;z-index:1000;width:min(300px,86vw);background:rgba(15,23,42,.97);backdrop-filter:blur(8px);border:1px solid var(--border2);border-radius:12px;padding:10px;display:none}
+#map-champ-panel.show{display:block}
 .set-caret{display:inline-block;width:16px;color:var(--accent)}
 .multi-chips{display:flex;flex-wrap:wrap;gap:7px;padding:4px 0}
 .mchip{padding:7px 12px;border:1px solid var(--border2,#334155);border-radius:999px;font-size:13px;color:var(--text);background:var(--bg1,#0f172a);cursor:pointer}
@@ -859,11 +864,28 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   </div>
   <div id="map"></div>
   <button class="map-filter" id="map-filter-btn" onclick="toggleFilterPanel()">Toutes les armoires</button>
+  <button class="map-filter" id="map-champ-btn" onclick="toggleChampPanel()" style="top:calc(env(safe-area-inset-top) + 108px)">Filtre caractéristique</button>
+  <div id="map-champ-panel">
+    <div class="mfp-head">
+      <button class="mfp-btn" onclick="clearChampFilter()">Effacer</button>
+      <button class="mfp-btn" onclick="toggleChampPanel()">Fermer ✕</button>
+    </div>
+    <div style="padding:6px 2px">
+      <div class="form-label">Caractéristique</div>
+      <select class="set-input" id="champ-field" onchange="renderChampValues()" style="margin-bottom:8px"></select>
+      <div class="form-label">Valeurs <span id="champ-count" style="opacity:.6"></span></div>
+      <button class="mfp-btn" id="champ-all-btn" style="width:100%;margin-bottom:6px" onclick="toggleAllChampValues()">Tout sélectionner</button>
+      <div class="mfp-list" id="champ-values" style="max-height:34vh;margin-bottom:8px"></div>
+      <button class="set-btn" style="width:100%" onclick="applyChampFilter()">Appliquer le filtre</button>
+    </div>
+  </div>
   <div id="map-filter-panel">
     <div class="mfp-head">
       <button class="mfp-btn" id="mfp-all-btn" onclick="toggleAllArmoiresFilter()">Tout sélectionner</button>
       <button class="mfp-btn" onclick="toggleFilterPanel()">Fermer ✕</button>
     </div>
+    <input type="text" id="mfp-search" placeholder="🔍 Rechercher une armoire…" oninput="renderFilterPanel()"
+      style="width:100%;box-sizing:border-box;padding:8px 10px;margin:6px 0;border:1px solid var(--border2);border-radius:8px;background:var(--bg1,#0f172a);color:var(--text);font-size:13px">
     <div class="mfp-list" id="mfp-list"></div>
   </div>
   <div class="map-controls">
@@ -1127,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v57</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v71</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -1744,6 +1766,7 @@ let state = {
   points: [],
   armoires: [],
   filterArmoire: [],   // multi-sélection d'armoires (vide = toutes)
+  filterChamp: null,   // { field, value } — filtre par caractéristique (null = aucun)
   currentPoint: null,
   previousScreen: 'map',
   panierInForm: false,
@@ -2182,15 +2205,25 @@ function finishLasso() {
   map.getContainer().classList.remove('lasso-on');
   map.dragging.enable(); map.doubleClickZoom.enable(); if (map.touchZoom) map.touchZoom.enable();
   if (poly.length < 3) { showToast('Tracé trop court', 'error'); return; }
-  let count = 0;
-  state.points.forEach(p => {
-    if (p.lat == null || p.lng == null) return;
-    if (pointInPoly(p.lat, p.lng, poly)) { p.dansPanier = true; count++; }
+  const inside = state.points.filter(p => p.lat != null && p.lng != null
+    && (!state.chantier || String(p.chantier || '') === String(state.chantier))
+    && pointInPoly(p.lat, p.lng, poly));
+  if (!inside.length) { showToast('Aucun point dans la zone', ''); return; }
+  // Bascule point par point : ceux hors panier entrent, ceux déjà dedans sortent.
+  let ajoutes = 0, retires = 0;
+  inside.forEach(p => {
+    if (p.dansPanier) { p.dansPanier = false; retires++; }
+    else { p.dansPanier = true; ajoutes++; }
   });
   saveLocal();
   refreshMapMarkers();
-  if (count) { showToast(count + ' point' + (count > 1 ? 's' : '') + ' sélectionné' + (count > 1 ? 's' : ''), 'success'); openModalMasseChoice(); }
-  else showToast('Aucun point dans la zone', '');
+  const nSel = state.points.filter(p => p.dansPanier).length;
+  let msg = [];
+  if (ajoutes) msg.push(ajoutes + ' ajouté(s)');
+  if (retires) msg.push(retires + ' retiré(s)');
+  showToast((msg.join(' · ') || 'Aucun changement') + ' — ' + nSel + ' au total', ajoutes ? 'success' : '');
+  // ouvre le menu d'action seulement si on a ajouté ET qu'il reste une sélection
+  if (ajoutes && nSel) openModalMasseChoice();
 }
 
 /* ════════ Déplacement groupé (glisser tous les points du panier d'un même vecteur) ════════
@@ -2516,12 +2549,33 @@ function cancelCalibration() {
   calibWaitMap = false; calibPts = []; calibLL = []; calibImg = null;
 }
 
+// Un point est "solaire" si son champ perso Solaire est renseigné (hors 'infaisable'),
+// ou si sa technologie/type de luminaire mentionne le solaire.
+// Étoile UNIQUEMENT si le champ « Solaire » vaut explicitement oui.
+// « non », vide, ou toute autre valeur → point rond normal.
+function isSolarPoint(pt){
+  const sol = String((pt.custom && (pt.custom['Solaire'] || pt.custom['solaire'])) || '').trim();
+  if (!sol) return false;
+  const v = _normVal(sol);
+  return v === 'oui' || v === 'yes' || v === 'true' || v === 'o' || v === 'x';
+}
+// Rond par défaut ; étoile pour les points solaires.
+function markerShapeHTML(pt, color){
+  if (isSolarPoint(pt)) {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">' +
+      '<path d="M12 2l2.9 6.3 6.9.7-5.1 4.7 1.4 6.8L12 17.8 5.9 20.5l1.4-6.8L2.2 9l6.9-.7z" ' +
+      'fill="' + color.fill + '" stroke="' + color.border + '" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+  }
+  return '<div style="width:14px;height:14px;border-radius:50%;background:' + color.fill + ';border:2px solid ' + color.border + ';box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>';
+}
 function getMarkerColor(pt) {
   const colors = (CONFIG && CONFIG.colors) || {};
   const dfl = colors._default || { fill: '#38bdf8', border: '#ffffff' };
   if (pt.dansPanier) return { fill: '#fb923c', border: '#ffffff' };
   const field = (CONFIG && CONFIG.colorField) || 'etatSupport';
-  const val = pt[field] || '';
+  let val;
+  if (field.indexOf('custom:') === 0) { const col = field.slice(7); val = (pt.custom && pt.custom[col]) || ''; }
+  else { val = pt[field] || ''; }
   if (val && colors[val]) return colors[val];
   return dfl;
 }
@@ -2532,7 +2586,7 @@ let _armIdsSorted = [];
 function _filterSet() { return new Set((state.filterArmoire || []).map(String)); }
 function populateArmoireFilter() {
   const ids = new Set();
-  const okC = x => !x || !x.chantier || String(x.chantier) === String(state.chantier);
+  const okC = x => !state.chantier || String((x && x.chantier) || '') === String(state.chantier);
   state.armoires.forEach(a => { if (a.id && okC(a)) ids.add(String(a.id)); });
   state.points.forEach(p => { if (p.idArmoire && okC(p)) ids.add(String(p.idArmoire)); });
   const sorted = [...ids].sort();
@@ -2558,10 +2612,99 @@ function renderFilterPanel() {
   const sel = _filterSet();
   const allBtn = document.getElementById('mfp-all-btn');
   if (allBtn) allBtn.textContent = (_armIdsSorted.length && sel.size >= _armIdsSorted.length) ? 'Tout désélectionner' : 'Tout sélectionner';
-  list.innerHTML = _armIdsSorted.map(id => `
+  const q = (document.getElementById('mfp-search')?.value || '').toLowerCase().trim();
+  const shown = q ? _armIdsSorted.filter(id => id.toLowerCase().includes(q)) : _armIdsSorted;
+  list.innerHTML = shown.map(id => `
     <div class="mfp-item${sel.has(id) ? ' on' : ''}" onclick="toggleArmoireInFilter('${escapeHtml(id)}')">
       <span>${escapeHtml(id)}</span><span class="mfp-check">${sel.has(id) ? '✓' : ''}</span>
-    </div>`).join('') || '<div class="set-empty" style="padding:8px">Aucune armoire</div>';
+    </div>`).join('') || '<div class="set-empty" style="padding:8px">' + (q ? 'Aucune armoire « ' + escapeHtml(q) + ' »' : 'Aucune armoire') + '</div>';
+}
+/* ═══ FILTRE PAR CARACTÉRISTIQUE (champ + valeur) ═══ */
+function champFilterOK(pt) {
+  const f = state.filterChamp;
+  if (!f || !f.field || !f.values || !f.values.length) return true;
+  const def = masseFieldById(f.field);
+  if (!def) return true;
+  const v = String(def.custom ? ((pt.custom && pt.custom[def.custom]) || '') : (pt[def.key] || '')).trim();
+  return f.values.some(x => x === '__vide' ? v === '' : _normVal(v) === _normVal(x));
+}
+let _champSel = new Set();      // valeurs cochées dans le panneau
+let _champListe = [];           // valeurs proposées
+function toggleChampPanel() {
+  const p = document.getElementById('map-champ-panel');
+  p.classList.toggle('show');
+  if (p.classList.contains('show')) renderChampFields();
+}
+function renderChampFields() {
+  const sel = document.getElementById('champ-field');
+  if (!sel) return;
+  const cur = state.filterChamp ? state.filterChamp.field : '';
+  sel.innerHTML = masseFieldDefs()
+    .map(d => `<option value="${escapeHtml(d.id)}"${d.id === cur ? ' selected' : ''}>${escapeHtml(d.label)}</option>`).join('');
+  renderChampValues();
+}
+function renderChampValues(garderSelection) {
+  const fSel = document.getElementById('champ-field');
+  const box = document.getElementById('champ-values');
+  if (!fSel || !box) return;
+  const def = masseFieldById(fSel.value);
+  const vues = new Set();
+  state.points.forEach(p => {
+    if (state.chantier && String(p.chantier || '') !== String(state.chantier)) return;
+    const v = def && def.custom ? ((p.custom && p.custom[def.custom]) || '') : (def ? (p[def.key] || '') : '');
+    if (String(v).trim() !== '') vues.add(String(v).trim());
+  });
+  (def && def.options ? def.options : []).forEach(o => { if (String(o).trim()) vues.add(String(o).trim()); });
+  _champListe = [...vues].sort((a, b) => a.localeCompare(b, 'fr'));
+  _champListe.push('__vide');
+  if (!garderSelection) {
+    // si le filtre actif porte sur ce champ, on recoche ses valeurs
+    _champSel = new Set(
+      (state.filterChamp && state.filterChamp.field === fSel.value) ? state.filterChamp.values : []);
+  }
+  box.innerHTML = _champListe.map(v => `
+    <div class="mfp-item${_champSel.has(v) ? ' on' : ''}" onclick="toggleChampValue('${escapeHtml(v).replace(/'/g, "\\'")}')">
+      <span>${v === '__vide' ? '— (non renseigné) —' : escapeHtml(v)}</span>
+      <span class="mfp-check">${_champSel.has(v) ? '✓' : ''}</span>
+    </div>`).join('') || '<div class="set-empty" style="padding:8px">Aucune valeur</div>';
+  const cnt = document.getElementById('champ-count');
+  if (cnt) cnt.textContent = _champSel.size ? '(' + _champSel.size + ' sélectionnée' + (_champSel.size > 1 ? 's' : '') + ')' : '';
+  const btn = document.getElementById('champ-all-btn');
+  if (btn) btn.textContent = (_champListe.length && _champSel.size >= _champListe.length) ? 'Tout désélectionner' : 'Tout sélectionner';
+}
+function toggleChampValue(v) {
+  if (_champSel.has(v)) _champSel.delete(v); else _champSel.add(v);
+  renderChampValues(true);
+}
+function toggleAllChampValues() {
+  if (_champSel.size >= _champListe.length) _champSel = new Set();
+  else _champSel = new Set(_champListe);
+  renderChampValues(true);
+}
+function applyChampFilter() {
+  const f = document.getElementById('champ-field').value;
+  const vals = [..._champSel];
+  if (!f || !vals.length) { showToast('Cochez au moins une valeur', 'error'); return; }
+  state.filterChamp = { field: f, values: vals };
+  const def = masseFieldById(f);
+  const btn = document.getElementById('map-champ-btn');
+  const libelle = vals.length === 1
+    ? (vals[0] === '__vide' ? 'non renseigné' : vals[0])
+    : vals.length + ' valeurs';
+  if (btn) btn.textContent = (def ? def.label : '') + ' : ' + libelle;
+  refreshMapMarkers();
+  toggleChampPanel();
+  const n = state.points.filter(p => p.lat && p.lng && champFilterOK(p)
+    && (!state.chantier || String(p.chantier || '') === String(state.chantier))).length;
+  showToast(n + ' point(s) correspondent', 'success');
+}
+function clearChampFilter() {
+  state.filterChamp = null;
+  _champSel = new Set();
+  const btn = document.getElementById('map-champ-btn');
+  if (btn) btn.textContent = 'Filtre caractéristique';
+  refreshMapMarkers();
+  toggleChampPanel();
 }
 function toggleFilterPanel() {
   document.getElementById('map-filter-panel').classList.toggle('show');
@@ -2612,14 +2755,11 @@ function refreshMapMarkers() {
   const ptMarkers = [];
   state.points.forEach(pt => {
     if (!pt.lat || !pt.lng) return;
-    if (state.chantier && pt.chantier && String(pt.chantier) !== String(state.chantier)) return;
+    if (state.chantier && String(pt.chantier || '') !== String(state.chantier)) return;
     if (state.filterArmoire.length && !state.filterArmoire.includes(String(pt.idArmoire))) return;
+    if (!champFilterOK(pt)) return;
     const color = getMarkerColor(pt);
-    const icon = L.divIcon({
-      className: '',
-      html: `<div style="width:14px;height:14px;border-radius:50%;background:${color.fill};border:2px solid ${color.border};box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
-      iconSize: [14,14], iconAnchor: [7,7]
-    });
+    const icon = L.divIcon({ className: '', html: markerShapeHTML(pt, color), iconSize: [18,18], iconAnchor: [9,9] });
     const marker = L.marker([pt.lat, pt.lng], { icon });
     marker.bindPopup(`
       <div class="popup-id">${escapeHtml(pt.id)}</div>
@@ -2642,7 +2782,7 @@ function refreshMapMarkers() {
   // Marqueurs armoires (carré orange avec éclair)
   state.armoires.forEach(arm => {
     if (!arm.lat || !arm.lng) return;
-    if (state.chantier && arm.chantier && String(arm.chantier) !== String(state.chantier)) return;
+    if (state.chantier && String(arm.chantier || '') !== String(state.chantier)) return;
     if (state.filterArmoire.length && !state.filterArmoire.includes(String(arm.id))) return;
     const nbPts = state.points.filter(p => String(p.idArmoire || '').trim() === String(arm.id).trim()).length;
     const icon = L.divIcon({
@@ -2885,20 +3025,21 @@ function showForm(pt) {
   document.getElementById('form-title').textContent = pt ? 'Modifier point' : 'Nouveau point';
   document.getElementById('form-id-text').textContent = pt ? pt.id : '';
   document.getElementById('f-nbr-supports').value = pt ? (pt.nbrSupports || '') : '';
-  document.getElementById('f-type-support').value = pt ? (pt.typeSupport || '') : '';
-  document.getElementById('f-etat-support').value = pt ? (pt.etatSupport || '') : '';
+  setFieldValueSmart(document.getElementById('f-type-support'),   pt ? (pt.typeSupport || '') : '');
+  setFieldValueSmart(document.getElementById('f-etat-support'),   pt ? (pt.etatSupport || '') : '');
   document.getElementById('f-hauteur').value = pt ? (pt.hauteur || '') : '';
-  document.getElementById('f-type-attache').value = pt ? (pt.typeAttache || '') : '';
+  setFieldValueSmart(document.getElementById('f-type-attache'),   pt ? (pt.typeAttache || '') : '');
   document.getElementById('f-nbr-luminaires').value = pt ? (pt.nbrLuminaires || '') : '';
-  document.getElementById('f-type-luminaire').value = pt ? (pt.typeLuminaire || '') : '';
-  document.getElementById('f-etat-luminaire').value = pt ? (pt.etatLuminaire || '') : '';
-  document.getElementById('f-technologie').value = pt ? (pt.technologie || '') : '';
+  setFieldValueSmart(document.getElementById('f-type-luminaire'), pt ? (pt.typeLuminaire || '') : '');
+  setFieldValueSmart(document.getElementById('f-etat-luminaire'), pt ? (pt.etatLuminaire || '') : '');
+  setFieldValueSmart(document.getElementById('f-technologie'),    pt ? (pt.technologie || '') : '');
   document.getElementById('f-puissance').value = pt ? (pt.puissance || '') : '';
   document.getElementById('f-observations').value = pt ? (pt.observations || '') : '';
   populateIdArmoireSelect(pt ? (pt.idArmoire || '') : '');
   document.getElementById('toggle-depose').classList.toggle('on', !!(pt && pt.aDeposer));
   document.getElementById('f-classe-precision').value = pt ? (pt.classePrecision || 'C') : 'C';
   renderCustomFields();
+  applyFieldOrder();          // les champs perso viennent d'être recréés → on replace tout
   (CONFIG.customFields || []).forEach(cf => {
     const el = document.getElementById('cf-' + cf.key);
     if (el) setFieldEl(el, (pt && pt.custom && pt.custom[cf.column] != null) ? pt.custom[cf.column] : '');
@@ -3080,10 +3221,10 @@ function dupliquerPointData(source) {
   document.getElementById('form-title').textContent = 'Dupliquer — GPS requis';
   document.getElementById('form-id-label').textContent = 'Nouveau point';
   document.getElementById('f-nbr-supports').value = source.nbrSupports || '';
-  document.getElementById('f-type-support').value = source.typeSupport || '';
-  document.getElementById('f-etat-support').value = source.etatSupport || '';
+  setFieldValueSmart(document.getElementById('f-type-support'), source.typeSupport || '');
+  setFieldValueSmart(document.getElementById('f-etat-support'), source.etatSupport || '');
   document.getElementById('f-hauteur').value = source.hauteur || '';
-  document.getElementById('f-type-attache').value = source.typeAttache || '';
+  setFieldValueSmart(document.getElementById('f-type-attache'), source.typeAttache || '');
   document.getElementById('f-nbr-luminaires').value = source.nbrLuminaires || '';
   document.getElementById('f-type-luminaire').value = '';
   document.getElementById('f-etat-luminaire').value = '';
@@ -3414,14 +3555,15 @@ function viderPanier() {
 /* ═══════════ CONFIG MODIFIABLE (page Réglages) ═══════════ */
 const CONFIG_DEFAULT = {
   lists: {
-    etatSupport: ['BON', 'MOYEN', 'VETUSTE', 'MANQUANT', 'ACCIDENTE'],
-    etatLuminaire: ['BON', 'MOYEN', 'VETUSTE', 'MANQUANT', 'ACCIDENTE'],
-    technologie: ['SHP', 'IM', 'CW', 'SBP', 'LED', 'TF', 'VM', 'HAL', 'FC', 'Lampe LED', 'AUTRE'],
-    typeLuminaire: ['ROUTIERE', 'RESIDENTIEL', 'STYLE', 'AMBIANCE', 'BOULE', 'BORNE', 'ENCASTRE_DE_SOL', 'PROJECTEUR', 'PROJECTEUR_SPORTIF', 'APPLIQUE_MURALE', 'AUTRE', 'SOLAIRE'],
+    etatSupport: ['BON', 'MOYEN', 'VETUSTE', 'INÉVALUABLE', 'ACCIDENTE', 'MANQUANT'],
+    etatLuminaire: ['BON', 'MOYEN', 'VETUSTE', 'INÉVALUABLE', 'ACCIDENTE', 'MANQUANT'],
+    technologie: ['SHP', 'BF', 'IM', 'LED', 'CW', 'SBP', 'Ampoule LED', 'TF', 'VM', 'HAL', 'FC', 'AUTRE'],
+    typeLuminaire: ['Fonctionnel', 'Résidentiel', 'Piétonnier', 'Design', 'Solaire', 'Balisage', 'Mise en valeur', 'ROUTIERE', 'AMBIANCE', 'BOULE', 'BORNE', 'PROJECTEUR', 'AUTRE'],
     hauteur: ['0m', '1m', '2m', '3m', '4m', '5m', '6m', '7m', '8m', '9m', '10m & +', 'Non définis'],
-    typeAttache: ['AUCUNE', 'CONSOLE', 'SIMPLE', 'DOUBLE', 'TRIPLE', 'QUADRUPLE'],
-    typeSupport: ['CANDELABRE_DROIT', 'CANDELABRE_SIMPLE_CROSSE', 'CANDELABRE_DOUBLE_CROSSE', 'CANDELABRE_TRIPLE_CROSSE', 'CANDELABRE_QUADRUPLE_CROSSE', 'CONSOLE_SUR_SUPPORT_EP', 'CONSOLE_SUR_SUPPORT_ENEDIS', 'CONSOLE_SUR_SUPPORT_AUTRE', 'CONSOLE_SUR_FACADE', 'BORNE', 'SOL_ENCASTRE', 'MUR_ENCASTRE', 'COLONNE_LUMINEUSE'],
-    cableAlim: ['Aérien', 'Souterrain', 'Mixte']
+    typeAttache: ['Top', 'Crosse', 'Sans attache', 'Contre-feu', 'AUCUNE', 'CONSOLE', 'SIMPLE', 'DOUBLE', 'TRIPLE', 'QUADRUPLE'],
+    typeSupport: ['Mât', 'PBA', 'Mur façade', 'Contre-feu', 'Borne', 'Plot', 'Spot', 'Colonne', 'Mât droit', 'Console', 'Potence', 'Candélabre', 'Encastré sol', 'Façade', 'Sol'],
+    cableAlim: ['Aérien', 'Souterrain', 'Mixte'],
+    etatCable: ['BON', 'MOYEN', 'VETUSTE']
   },
   customFields: [
     { key: 'solaire', label: 'Solaire', column: 'Solaire', type: 'select',
@@ -3497,6 +3639,18 @@ async function loadConfig() {
   if (!Array.isArray(CONFIG.orderPL)) CONFIG.orderPL = [];
   if (!Array.isArray(CONFIG.orderARM)) CONFIG.orderARM = [];
   if (!Array.isArray(CONFIG.templates)) CONFIG.templates = [];
+  // Doublons de champs personnalisés (accumulés au fil des fusions) → on ne garde que le premier
+  ['customFields', 'armCustomFields'].forEach(prop => {
+    if (!Array.isArray(CONFIG[prop])) return;
+    const vus = new Set(); const propres = [];
+    CONFIG[prop].forEach(cf => {
+      const cle = String(cf.column || cf.key || '').toLowerCase().trim();
+      if (!cle || vus.has(cle)) return;
+      vus.add(cle);
+      propres.push(cf);
+    });
+    if (propres.length !== CONFIG[prop].length) CONFIG[prop] = propres;
+  });
   if (!CONFIG.updatedAt) {
     // Config d'avant le partage : horodatage NEUTRE (1) — elle peut amorcer l'onglet Config
     // s'il est vide, mais ne peut JAMAIS écraser une config réellement enregistrée ailleurs.
@@ -3551,6 +3705,11 @@ function renderCustomFields() {
       const chips = (cf.options || []).map(o => `<span class="mchip" data-v="${escapeHtml(o)}" onclick="toggleChip(this)">${escapeHtml(o)}</span>`).join('');
       return `<div class="form-row"><div class="form-label">${escapeHtml(cf.label)}</div><div class="multi-chips" id="${id}" data-col="${col}">${chips}</div></div>`;
     }
+    if (cf.type === 'trames') {
+      const noms = (typeof getAllTemplates === 'function' ? getAllTemplates() : []).map(t => t.name);
+      const optsT = '<option value=""></option>' + noms.map(o => `<option>${escapeHtml(o)}</option>`).join('');
+      return `<div class="form-row"><div class="form-label">${escapeHtml(cf.label)}</div><select class="form-select" id="${id}" data-col="${col}">${optsT}</select></div>`;
+    }
     if (cf.type === 'select') {
       const opts = '<option value=""></option>' + (cf.options || []).map(o => `<option>${escapeHtml(o)}</option>`).join('');
       return `<div class="form-row"><div class="form-label">${escapeHtml(cf.label)}</div><select class="form-select" id="${id}" data-col="${col}">${opts}</select></div>`;
@@ -3575,6 +3734,11 @@ function renderArmCustomFields() {
     if (cf.type === 'multi') {
       const chips = (cf.options || []).map(o => `<span class="mchip" data-v="${escapeHtml(o)}" onclick="toggleChip(this)">${escapeHtml(o)}</span>`).join('');
       return `<div class="form-row"><div class="form-label">${escapeHtml(cf.label)}</div><div class="multi-chips" id="${id}" data-col="${col}">${chips}</div></div>`;
+    }
+    if (cf.type === 'trames') {
+      const noms = (typeof getAllTemplates === 'function' ? getAllTemplates() : []).map(t => t.name);
+      const optsT = '<option value=""></option>' + noms.map(o => `<option>${escapeHtml(o)}</option>`).join('');
+      return `<div class="form-row"><div class="form-label">${escapeHtml(cf.label)}</div><select class="form-select" id="${id}" data-col="${col}">${optsT}</select></div>`;
     }
     if (cf.type === 'select') {
       const opts = '<option value=""></option>' + (cf.options || []).map(o => `<option>${escapeHtml(o)}</option>`).join('');
@@ -3681,6 +3845,20 @@ const ARM_ORDER_DEFS = [
   { key:'observations', label:'Observations',         el:'af-observations' },
   { key:'custom',       label:'Champs personnalisés', el:'custom-fields-arm', self:true },
 ];
+// Défs complètes = champs standard (dont ceux qui manquaient) + un item par champ personnalisé
+function plOrderDefs() {
+  const base = PL_ORDER_DEFS.filter(d => d.key !== 'custom').slice();
+  base.push({ key:'depose', label:'Point à déposer', el:'toggle-depose' });
+  (CONFIG.customFields || []).forEach(cf =>
+    base.push({ key:'cf:' + cf.key, label:cf.label + ' (perso)', el:'cf-' + cf.key }));
+  return base;
+}
+function armOrderDefs() {
+  const base = ARM_ORDER_DEFS.filter(d => d.key !== 'custom').slice();
+  (CONFIG.armCustomFields || []).forEach(cf =>
+    base.push({ key:'acf:' + cf.key, label:cf.label + ' (perso)', el:'acf-' + cf.key }));
+  return base;
+}
 function effectiveOrder(defs, saved) {
   const keys = (saved || []).filter(k => defs.some(d => d.key === k));
   defs.forEach(d => { if (!keys.includes(d.key)) keys.push(d.key); }); // nouveaux champs → à la fin
@@ -3712,11 +3890,91 @@ function reorderForm(formSel, defs, saved) {
   parent.removeChild(marker);
 }
 function applyFieldOrder() {
-  reorderForm('#screen-form', PL_ORDER_DEFS, CONFIG.orderPL);
-  reorderForm('#screen-armoire-form', ARM_ORDER_DEFS, CONFIG.orderARM);
+  reorderForm('#screen-form', plOrderDefs(), CONFIG.orderPL);
+  reorderForm('#screen-armoire-form', armOrderDefs(), CONFIG.orderARM);
+  nettoyerTitresSections('#screen-form');
+  nettoyerTitresSections('#screen-armoire-form');
+}
+
+// Après réorganisation, un titre de section peut se retrouver sans aucun champ
+// en dessous (les champs ont été déplacés ailleurs) : on le masque.
+function nettoyerTitresSections(formSel) {
+  const form = document.querySelector(formSel + ' .form-scroll') || document.querySelector(formSel);
+  if (!form) return;
+  const enfants = [...form.children];
+  enfants.forEach((el, i) => {
+    if (!el.classList || !el.classList.contains('form-section-title')) return;
+    let aDuContenu = false;
+    for (let j = i + 1; j < enfants.length; j++) {
+      const e = enfants[j];
+      if (e.classList && e.classList.contains('form-section-title')) break;   // section suivante
+      // un bloc non vide et visible = la section a du contenu
+      if (e.offsetParent !== null || (e.children && e.children.length)) { aDuContenu = true; break; }
+    }
+    el.style.display = aDuContenu ? '' : 'none';
+  });
+}
+// Réordonne par glisser-déposer (fonctionne à la souris et au doigt)
+function initOrderDrag() {
+  document.querySelectorAll('.ord-list').forEach(list => {
+    if (list._dragReady) return;
+    list._dragReady = true;
+    let src = null;
+    list.addEventListener('dragstart', e => {
+      const it = e.target.closest('.ord-item'); if (!it) return;
+      src = it; it.classList.add('ord-drag');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', it.dataset.idx); } catch (err) {}
+    });
+    list.addEventListener('dragover', e => {
+      e.preventDefault();
+      const it = e.target.closest('.ord-item');
+      if (!it || it === src) return;
+      const r = it.getBoundingClientRect();
+      list.insertBefore(src, (e.clientY - r.top) < r.height / 2 ? it : it.nextSibling);
+    });
+    list.addEventListener('dragend', () => {
+      if (src) src.classList.remove('ord-drag');
+      src = null;
+      appliquerOrdreDepuisListe(list);
+    });
+    // tactile
+    let tSrc = null;
+    list.addEventListener('touchstart', e => {
+      const it = e.target.closest('.ord-grip') ? e.target.closest('.ord-item') : null;
+      if (it) { tSrc = it; it.classList.add('ord-drag'); }
+    }, { passive: true });
+    list.addEventListener('touchmove', e => {
+      if (!tSrc) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const it = el && el.closest ? el.closest('.ord-item') : null;
+      if (it && it !== tSrc && it.parentNode === list) {
+        const r = it.getBoundingClientRect();
+        list.insertBefore(tSrc, (t.clientY - r.top) < r.height / 2 ? it : it.nextSibling);
+      }
+    }, { passive: false });
+    list.addEventListener('touchend', () => {
+      if (!tSrc) return;
+      tSrc.classList.remove('ord-drag'); tSrc = null;
+      appliquerOrdreDepuisListe(list);
+    });
+  });
+}
+function appliquerOrdreDepuisListe(list) {
+  const which = list.dataset.which;
+  const defs = which === 'PL' ? plOrderDefs() : armOrderDefs();
+  const prop = which === 'PL' ? 'orderPL' : 'orderARM';
+  const ancien = effectiveOrder(defs, CONFIG[prop]);
+  const nouveau = [...list.querySelectorAll('.ord-item')].map(it => ancien[Number(it.dataset.idx)]);
+  if (nouveau.length !== ancien.length || nouveau.some(k => !k)) return;
+  CONFIG[prop] = nouveau;
+  saveConfig();
+  renderSettings();
 }
 function moveField(which, idx, dir) {
-  const defs = which === 'PL' ? PL_ORDER_DEFS : ARM_ORDER_DEFS;
+  const defs = which === 'PL' ? plOrderDefs() : armOrderDefs();
   const prop = which === 'PL' ? 'orderPL' : 'orderARM';
   const keys = effectiveOrder(defs, CONFIG[prop]);
   const j = idx + dir;
@@ -3804,14 +4062,25 @@ async function loadTemplatesFromSheets(silent){
         if (k!==null && String(r[k]).trim() !== '') custom[m.col] = String(r[k]).trim();
       });
       const photoKey = _findHeaderKey(r, ['photo','lien photo','photo url','image','lien image','url photo']);
-      const photoUrl = photoKey!==null ? driveImageUrl(r[photoKey]) : '';
+      const photoRaw = photoKey!==null ? String(r[photoKey] || '').trim() : '';   // lien D'ORIGINE, à reécrire tel quel
+      const photoUrl = photoRaw ? driveImageUrl(photoRaw) : '';
       const prev = (CONFIG.templates || []).find(t => t.name.toLowerCase() === name.toLowerCase());
       out.push({ key:'sheet_'+slugify(name), name, fromSheet:true,
                  color: prev ? prev.color : null,
+                 photoUrl: photoRaw,                      // ← mémorisé : plus d'effacement à la réécriture
                  thumb: photoUrl || (prev ? prev.thumb : null),
                  values, custom });
     });
     SHEET_TEMPLATES = out;
+    // Filet de sécurité : si les trames arrivent après les points, on complète les fiches
+    // concernées par une « Catégorie » (uniquement leurs champs restés vides).
+    let _recat = 0;
+    (state.points || []).forEach(p => {
+      const avant = JSON.stringify([p.typeSupport, p.hauteur, p.typeLuminaire, p.technologie, p.etatSupport]);
+      applyCategorieToPoint(p);
+      if (JSON.stringify([p.typeSupport, p.hauteur, p.typeLuminaire, p.technologie, p.etatSupport]) !== avant) _recat++;
+    });
+    if (_recat) { saveLocal(); refreshMapMarkers(); }
     renderTemplatesBar();
     if (typeof renderMasseTplBar === 'function') renderMasseTplBar();
     if (currentScreen === 'settings') renderSettings();
@@ -3841,13 +4110,20 @@ function renderTemplatesBar() {
     </div>`;
   bar.innerHTML = html;
 }
+function _normVal(x){ return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
+function setFieldValueSmart(el, v){
+  if (!el) return;
+  if (el.tagName === 'SELECT') {
+    const want = _normVal(v);
+    let match = [...el.options].find(o => _normVal(o.value || o.textContent) === want);
+    if (!match && want) { match = new Option(String(v), String(v)); el.add(match); }
+    el.value = match ? (match.value || match.textContent) : '';
+  } else { el.value = v; }
+}
 function applyTemplate(i) {
   const t = getAllTemplates()[i];
   if (!t) return;
-  Object.entries(t.values || {}).forEach(([id, v]) => {
-    const el = document.getElementById(id);
-    if (el) el.value = v;
-  });
+  Object.entries(t.values || {}).forEach(([id, v]) => setFieldValueSmart(document.getElementById(id), v));
   Object.entries(t.custom || {}).forEach(([col, v]) => {
     const el = document.querySelector('#custom-fields-pl [data-col="' + CSS.escape(col) + '"]');
     if (el) setFieldEl(el, v);
@@ -3975,6 +4251,117 @@ function saveTemplateEdit(i) {
   window._editTpl = null;
   saveConfig(); renderSettings(); renderTemplatesBar();
   showToast('Trame « ' + t.name + ' » enregistrée', 'success');
+}
+// Champs éditables d'une trame du tableau
+const SHEET_TPL_FIELDS = [
+  ['f-type-support','Type de support','typeSupport'],
+  ['f-etat-support','État du support','etatSupport'],
+  ['f-hauteur','Hauteur','hauteur'],
+  ['f-type-attache',"Type d'attache",'typeAttache'],
+  ['f-nbr-luminaires','Nbr luminaires',null],
+  ['f-type-luminaire','Type de luminaire','typeLuminaire'],
+  ['f-etat-luminaire','État luminaires','etatLuminaire'],
+  ['f-technologie','Technologie','technologie'],
+  ['f-puissance','Puissance',null],
+];
+function editSheetTemplate(si){
+  window._editSheetTpl = (window._editSheetTpl === si) ? null : si;
+  _openSections.add('Trames de fiche (point lumineux)');
+  renderSettings();
+}
+function renderSheetTemplateEditor(t, si){
+  let h = '<div class="set-card" style="border-color:var(--accent)">';
+  h += '<div class="set-card-title">Modifier « ' + escapeHtml(t.name) + ' »</div>';
+  h += '<div class="form-label" style="margin-top:6px">Nom</div><input class="set-input" id="stpe-name" value="' + escapeHtml(t.name) + '" style="margin-bottom:8px">';
+  SHEET_TPL_FIELDS.forEach(([fid,label,listKey]) => {
+    const cur = (t.values||{})[fid] || '';
+    h += '<div class="form-label" style="margin-top:6px">' + escapeHtml(label) + '</div>';
+    if (listKey && CONFIG.lists[listKey]) {
+      const opts = ['<option value="">--</option>'].concat(CONFIG.lists[listKey].map(o => '<option' + (o===cur?' selected':'') + '>' + escapeHtml(o) + '</option>'));
+      if (cur && !CONFIG.lists[listKey].includes(cur)) opts.push('<option selected>' + escapeHtml(cur) + '</option>');
+      h += '<select class="set-input" id="stpe-' + fid + '" style="margin-bottom:6px">' + opts.join('') + '</select>';
+    } else {
+      h += '<input class="set-input" id="stpe-' + fid + '" value="' + escapeHtml(cur) + '" style="margin-bottom:6px">';
+    }
+  });
+  // champs perso (Gamme, Marque…)
+  (CONFIG.customFields||[]).forEach(cf => {
+    const cur = (t.custom||{})[cf.column] || '';
+    h += '<div class="form-label" style="margin-top:6px">' + escapeHtml(cf.label) + '</div>';
+    h += '<input class="set-input" id="stpec-' + cf.key + '" data-col="' + escapeHtml(cf.column) + '" value="' + escapeHtml(cur) + '" style="margin-bottom:6px">';
+  });
+  h += '<div class="set-add" style="margin-top:10px">';
+  h += '<button class="set-btn" onclick="saveSheetTemplateEdit(' + si + ')" style="background:#4ade80;color:#04222e">Enregistrer dans le Sheet</button>';
+  h += '<button class="set-mini" style="width:auto;padding:0 12px" onclick="window._editSheetTpl=null;renderSettings()">Annuler</button>';
+  h += '<button class="set-mini" style="width:auto;padding:0 12px;color:#f87171;border-color:#f87171" onclick="deleteSheetTemplate(' + si + ')">Supprimer</button>';
+  h += '</div></div>';
+  return h;
+}
+async function saveSheetTemplateEdit(si){
+  const t = SHEET_TEMPLATES[si]; if (!t) return;
+  const name = (document.getElementById('stpe-name').value||'').trim();
+  if (name) t.name = name;
+  const values = {};
+  SHEET_TPL_FIELDS.forEach(([fid]) => { const el = document.getElementById('stpe-'+fid); if (el && el.value) values[fid] = el.value; });
+  const custom = {};
+  (CONFIG.customFields||[]).forEach(cf => { const el = document.getElementById('stpec-'+cf.key); if (el && el.value) custom[cf.column] = el.value; });
+  t.values = values; t.custom = custom;
+  window._editSheetTpl = null;
+  await pushSheetTemplates();
+  renderSettings(); renderTemplatesBar();
+  showToast('Trame « ' + t.name + ' » enregistrée dans le Sheet', 'success');
+}
+async function deleteSheetTemplate(si){
+  const t = SHEET_TEMPLATES[si]; if (!t) return;
+  if (!confirm('Supprimer la trame « ' + t.name + ' » du tableau ?')) return;
+  SHEET_TEMPLATES.splice(si, 1);
+  window._editSheetTpl = null;
+  await pushSheetTemplates();
+  renderSettings(); renderTemplatesBar();
+  showToast('Trame supprimée', '');
+}
+// Réécrit tout l'onglet Trames depuis SHEET_TEMPLATES
+async function pushSheetTemplates(){
+  if (!navigator.onLine) { showToast('Hors ligne — modification enregistrée au retour du réseau', 'error'); return; }
+  if (!SHEET_TEMPLATES.length) { showToast('Aucune trame à écrire — opération annulée par sécurité', 'error'); return; }  // anti-effacement
+  const headers = ['Catégorie','Nbr supports','Types de support','État du support','Hauteur',
+    "Types d'attache",'Nbr Luminaires','Types de luminaire','État luminaires','Technologie','Puissance',
+    'Gamme du luminaire','Marque du luminaire','Photo'];
+  const F = { supNbr:'f-nbr-supports', supType:'f-type-support', supEtat:'f-etat-support', haut:'f-hauteur',
+    att:'f-type-attache', lumNbr:'f-nbr-luminaires', lumType:'f-type-luminaire', lumEtat:'f-etat-luminaire',
+    tech:'f-technologie', puis:'f-puissance' };
+  const rows = SHEET_TEMPLATES.map(t => {
+    const v = t.values||{}, c = t.custom||{};
+    return [ t.name, v[F.supNbr]||'', v[F.supType]||'', v[F.supEtat]||'', v[F.haut]||'',
+      v[F.att]||'', v[F.lumNbr]||'', v[F.lumType]||'', v[F.lumEtat]||'', v[F.tech]||'', v[F.puis]||'',
+      c['Gamme luminaire']||'', c['Marque luminaire']||'', t.photoUrl||'' ];
+  });
+  try {
+    const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({ action:'saveTrames', headers, rows }) });
+    const r = await res.json();
+    if (r.error) throw new Error(r.error);
+  } catch (e) { showToast('Échec écriture Trames : ' + e.message, 'error'); }
+}
+// Photo d'une trame du tableau : upload Drive → dossier "Photos de trame" → lien dans la colonne Photo
+async function sheetTplPhoto(si, input){
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const t = SHEET_TEMPLATES[si]; if (!t) return;
+  showToast('Envoi de la photo…', '');
+  try {
+    const blob = await downscaleToBlob(file);
+    const b64 = await blobToBase64(blob);
+    const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({ action:'tramePhoto', name:t.name, data:b64, mime:'image/jpeg' }) });
+    const r = await res.json();
+    if (r.error) throw new Error(r.error);
+    t.photoUrl = r.url;
+    t.thumb = driveImageUrl(r.url);
+    // le serveur a déjà inscrit le lien dans la cellule Photo → on ne réécrit PAS tout le tableau
+    renderSettings(); renderTemplatesBar();
+    showToast('Photo de trame enregistrée dans Drive ✓', 'success');
+  } catch (e) { showToast('Échec photo trame : ' + e.message, 'error'); }
 }
 function sheetTplColor(name, color){
   const t = SHEET_TEMPLATES.find(x => x.name === name);
@@ -4154,6 +4541,7 @@ function toggleSection(el) {
   renderSettings();
 }
 function renderSettings() {
+  setTimeout(() => { try { refreshTilesInfo(); } catch(e){} }, 60);
   const box = document.getElementById('settings-body');
   if (!box) return;
   let html = '<div class="set-section-title">Listes de choix</div>';
@@ -4174,11 +4562,30 @@ function renderSettings() {
   html += '<div class="set-section-title">Champs personnalisés (nouvelles colonnes)</div>';
   if (!CONFIG.customFields.length) html += '<div class="set-empty" style="padding:0 4px 8px">Aucun champ personnalisé pour le moment.</div>';
   CONFIG.customFields.forEach((cf, i) => {
-    const meta = cf.type === 'select' ? ('liste : ' + (cf.options || []).join(', ')) : (cf.type === 'multi' ? ('choix multiples : ' + (cf.options || []).join(', ')) : 'texte libre');
+    const typeLabel = cf.type === 'select' ? 'Liste de choix'
+      : (cf.type === 'multi' ? 'Choix multiples'
+      : (cf.type === 'trames' ? 'Liste des trames (auto)' : 'Texte libre'));
+    let optChips = '';
+    if (cf.type === 'trames') {
+      optChips = '<div class="set-empty">Les choix sont les noms de vos trames — mis à jour automatiquement.</div>';
+    } else if (cf.type === 'select' || cf.type === 'multi') {
+      optChips = '<div class="set-chips">' + (cf.options || []).map((o, oi) =>
+        `<span class="set-chip">${escapeHtml(o)}<span class="set-chip-x" onclick="removeCustomOption(${i},${oi})">×</span></span>`
+      ).join('') + '</div><div class="set-add"><input class="set-input" id="addcfopt-' + i + '" placeholder="Nouvelle option…"><button class="set-btn" onclick="addCustomOption(' + i + ')">Ajouter</button></div>';
+    }
     html += `<div class="set-card">
-      <div class="set-card-title">${escapeHtml(cf.label)} <span class="set-tag">→ colonne « ${escapeHtml(cf.column)} »</span></div>
-      <div class="set-empty">${escapeHtml(meta)}</div>
-      <div class="set-add"><button class="set-btn set-btn-del" onclick="removeCustomField(${i})">Supprimer ce champ</button></div>
+      <div class="set-card-title">${escapeHtml(cf.label)} <span class="set-tag">→ colonne « ${escapeHtml(cf.column)} » · ${typeLabel}</span></div>
+      ${optChips}
+      <div class="set-add">
+        <select class="set-input" style="max-width:190px" onchange="changeCustomFieldType(${i}, this.value)">
+          <option value="text"${cf.type === 'text' ? ' selected' : ''}>Texte libre</option>
+          <option value="select"${cf.type === 'select' ? ' selected' : ''}>Liste de choix</option>
+          <option value="multi"${cf.type === 'multi' ? ' selected' : ''}>Choix multiples</option>
+          <option value="trames"${cf.type === 'trames' ? ' selected' : ''}>Liste des trames (auto)</option>
+        </select>
+        <button class="set-btn" onclick="renameCustomField(${i})">✏️ Renommer</button>
+        <button class="set-btn set-btn-del" onclick="removeCustomField(${i})">Supprimer</button>
+      </div>
     </div>`;
   });
   html += `<div class="set-card">
@@ -4199,14 +4606,19 @@ function renderSettings() {
   if (SHEET_TEMPLATES.length) {
     html += '<div class="set-card">';
     html += '<div class="set-empty" style="margin-bottom:8px">' + SHEET_TEMPLATES.length + ' trame(s) gérée(s) dans l\u2019onglet <b>Trames</b> du Sheet (ajout/suppression directement dans le tableau) :</div>';
-    SHEET_TEMPLATES.forEach(t => {
+    SHEET_TEMPLATES.forEach((t, si) => {
       const nb = Object.keys(t.values||{}).length + Object.keys(t.custom||{}).length;
       html += `<div class="set-tpl-row">
-        <div class="set-tpl-thumb">📄</div>
+        ${t.thumb ? `<img class="set-tpl-thumb" src="${t.thumb}" alt="">` : `<div class="set-tpl-thumb">📄</div>`}
         <div style="flex:1;min-width:0"><div class="set-color-label" style="font-weight:600">${escapeHtml(t.name)}</div>
         <div class="set-empty">${nb} caractéristique(s) · depuis le Sheet</div></div>
         <input type="color" class="set-color" style="width:34px;height:30px" value="${t.color || '#38bdf8'}" onchange="sheetTplColor('${escapeHtml(t.name)}', this.value)" title="Couleur de l'encadré">
+        <label class="set-mini" style="display:flex;align-items:center;justify-content:center;cursor:pointer" title="Photo (rangée dans Drive)">📷
+          <input type="file" accept="image/*" style="display:none" onchange="sheetTplPhoto(${si}, this)">
+        </label>
+        <button class="set-mini" onclick="editSheetTemplate(${si})" title="Modifier">✏️</button>
       </div>`;
+      if (window._editSheetTpl === si) html += renderSheetTemplateEditor(t, si);
     });
     html += '</div>';
   }
@@ -4236,6 +4648,17 @@ function renderSettings() {
   html += '<div class="set-add" style="margin-top:10px"><button class="set-btn" onclick="newTemplateFromSettings()">＋ Nouvelle trame</button></div>';
   html += '</div>';
 
+  html += '<div class="set-section-title">Cartes hors-ligne</div>';
+  html += `<div class="set-card">
+    <div class="set-empty" style="margin-bottom:8px">Cartes téléchargées pour une utilisation sans réseau. Le préchargement se fait depuis la carte (bouton de téléchargement), selon le fond affiché.</div>
+    <div class="set-color-row"><span class="set-color-label">Tuiles en cache</span><span id="set-tiles-count" style="font-weight:600">—</span></div>
+    <div class="set-color-row"><span class="set-color-label">Espace estimé</span><span id="set-tiles-size" style="font-weight:600">—</span></div>
+    <div class="set-add" style="margin-top:8px">
+      <button class="set-btn" onclick="refreshTilesInfo()">Actualiser</button>
+      <button class="set-btn set-btn-del" onclick="clearTileCache().then(refreshTilesInfo)">Vider les cartes</button>
+    </div>
+  </div>`;
+
   html += '<div class="set-section-title">Importer des points (chantier : ' + escapeHtml(state.chantier || '?') + ')</div>';
   html += `<div class="set-card">
     <div class="set-empty" style="margin-bottom:8px">Collez les points du SIG : une ligne par point, <b>ID ; X ; Y</b> (séparateur ; , ou tabulation). Les coordonnées Lambert-93 et Coniques Conformes (CC42-CC50) sont converties automatiquement en GPS.</div>
@@ -4259,28 +4682,51 @@ function renderSettings() {
   </div>`;
 
   html += '<div class="set-section-title">Ordre des champs dans les fiches</div>';
-  [['PL', 'Fiche point lumineux', PL_ORDER_DEFS, CONFIG.orderPL], ['ARM', 'Fiche armoire', ARM_ORDER_DEFS, CONFIG.orderARM]].forEach(([which, title, defs, saved]) => {
+  [['PL', 'Fiche point lumineux', plOrderDefs(), CONFIG.orderPL], ['ARM', 'Fiche armoire', armOrderDefs(), CONFIG.orderARM]].forEach(([which, title, defs, saved]) => {
     const keys = effectiveOrder(defs, saved);
-    html += `<div class="set-card"><div class="set-card-title">${title}</div>`;
+    html += `<div class="set-card"><div class="set-card-title">${title}</div>
+      <div class="set-empty" style="margin-bottom:6px">Glissez un champ pour le déplacer (les flèches restent disponibles).</div>
+      <div class="ord-list" data-which="${which}">`;
     keys.forEach((k, i) => {
       const d = defs.find(x => x.key === k);
-      html += `<div class="set-order-row"><span class="set-color-label">${escapeHtml(d.label)}</span><span>
+      html += `<div class="set-order-row ord-item" draggable="true" data-which="${which}" data-idx="${i}">
+        <span class="ord-grip">⠿</span>
+        <span class="set-color-label" style="flex:1">${escapeHtml(d.label)}</span><span>
         <button class="set-mini" onclick="moveField('${which}',${i},-1)" ${i === 0 ? 'disabled' : ''}>▲</button>
         <button class="set-mini" onclick="moveField('${which}',${i},1)" ${i === keys.length - 1 ? 'disabled' : ''}>▼</button>
       </span></div>`;
     });
-    html += '</div>';
+    html += '</div></div>';
   });
 
   html += '<div class="set-section-title">Couleurs des points sur la carte</div>';
   html += '<div class="set-card">';
+  // Champs disponibles pour déclencher la couleur : toutes les listes + champs perso de type liste
+  const colorChoices = LIST_FIELDS.slice();
+  // + toutes les autres listes de choix définies dans les réglages
+  Object.keys(CONFIG.lists || {}).forEach(k => {
+    if (!colorChoices.some(f => f.key === k) && (CONFIG.lists[k] || []).length)
+      colorChoices.push({ key: k, label: k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()) });
+  });
+  // + tous les champs personnalisés (liste ou choix multiples)
+  (CONFIG.customFields || []).forEach(cf => {
+    if (cf.type === 'select' || cf.type === 'multi')
+      colorChoices.push({ key: 'custom:' + cf.column, label: cf.label, custom: true, column: cf.column });
+  });
+  window._colorChoices = colorChoices;
   html += '<div class="set-color-row"><span class="set-color-label">Couleur déclenchée par</span>' +
     '<select class="set-input" style="width:auto;flex:1;margin-left:8px" onchange="setColorField(this.value)">' +
-    LIST_FIELDS.map(f => `<option value="${f.key}"${CONFIG.colorField === f.key ? ' selected' : ''}>${escapeHtml(f.label)}</option>`).join('') +
+    colorChoices.map(f => `<option value="${f.key}"${CONFIG.colorField === f.key ? ' selected' : ''}>${escapeHtml(f.label)}</option>`).join('') +
     '</select></div>';
-  const colorFieldDef = LIST_FIELDS.find(f => f.key === CONFIG.colorField) || LIST_FIELDS[1];
+  const colorFieldDef = colorChoices.find(f => f.key === CONFIG.colorField) || colorChoices[0];
   html += `<div class="set-empty" style="margin:6px 0 10px">Selon « ${escapeHtml(colorFieldDef.label)} » de chaque point — intérieur et contour réglables séparément.</div>`;
-  (CONFIG.lists[CONFIG.colorField] || []).forEach((val, i) => {
+  let _colorVals;
+  if (String(CONFIG.colorField).indexOf('custom:') === 0) {
+    const col = CONFIG.colorField.slice(7);
+    const cf = (CONFIG.customFields || []).find(c => c.column === col);
+    _colorVals = (cf && cf.options) || [];
+  } else { _colorVals = CONFIG.lists[CONFIG.colorField] || []; }
+  _colorVals.forEach((val, i) => {
     const c = (CONFIG.colors && CONFIG.colors[val]) || (CONFIG.colors && CONFIG.colors._default) || { fill: '#38bdf8', border: '#ffffff' };
     html += `<div class="set-color-row">
       <span class="set-color-label">${escapeHtml(val)}</span>
@@ -4353,6 +4799,7 @@ function renderSettings() {
     </div>`;
   });
   box.innerHTML = out;
+  setTimeout(initOrderDrag, 30);
 }
 function addOption(key) {
   const inp = document.getElementById('addopt-' + key);
@@ -4369,6 +4816,44 @@ function removeOption(key, idx) {
 function slugify(s) {
   return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || ('champ_' + Date.now());
+}
+function changeCustomFieldType(i, type){
+  const cf = CONFIG.customFields[i]; if (!cf) return;
+  cf.type = type;
+  if ((type === 'select' || type === 'multi') && !Array.isArray(cf.options)) cf.options = [];
+  saveConfig(); renderSettings();
+  showToast('Type modifié — ajoutez les options si besoin', 'success');
+}
+function renameCustomField(i){
+  const cf = CONFIG.customFields[i]; if (!cf) return;
+  const v = (prompt('Nom affiché dans la fiche :', cf.label) || '').trim();
+  if (!v) return;
+  cf.label = v;
+  const col = (prompt('Colonne du Google Sheet à lire / écrire :\n(doit correspondre EXACTEMENT à l\u2019en-tête du tableur)', cf.column) || '').trim();
+  if (col && col !== cf.column) {
+    if ((CONFIG.customFields || []).some((c, j) => j !== i && c.column === col)) {
+      showToast('Une autre colonne porte déjà ce nom', 'error'); return;
+    }
+    cf.column = col;
+    showToast('Champ « ' + v + ' » relié à la colonne « ' + col + ' »', 'success');
+  } else {
+    showToast('Champ renommé', 'success');
+  }
+  saveConfig(); renderSettings();
+}
+function addCustomOption(i){
+  const cf = CONFIG.customFields[i]; if (!cf) return;
+  const inp = document.getElementById('addcfopt-' + i);
+  const v = (inp && inp.value || '').trim();
+  if (!v) return;
+  cf.options = cf.options || [];
+  if (!cf.options.includes(v)) cf.options.push(v);
+  saveConfig(); renderSettings();
+}
+function removeCustomOption(i, oi){
+  const cf = CONFIG.customFields[i]; if (!cf || !cf.options) return;
+  cf.options.splice(oi, 1);
+  saveConfig(); renderSettings();
 }
 function addCustomField() {
   const label = (document.getElementById('cf-new-label').value || '').trim();
@@ -4419,7 +4904,13 @@ function setStateColor(etat, color, channel) {
   renderPanier();
 }
 function setStateColorByIndex(i, color, channel) {
-  const val = (CONFIG.lists[CONFIG.colorField] || [])[i];
+  let _cv;
+  if (String(CONFIG.colorField).indexOf('custom:') === 0) {
+    const col = CONFIG.colorField.slice(7);
+    const cf = (CONFIG.customFields || []).find(c => c.column === col);
+    _cv = (cf && cf.options) || [];
+  } else { _cv = CONFIG.lists[CONFIG.colorField] || []; }
+  const val = _cv[i];
   if (val) setStateColor(val, color, channel);
 }
 function setColorField(field) {
@@ -4431,26 +4922,40 @@ function setColorField(field) {
   renderSettings();
 }
 
-let masseOptions = {
-  'f-type-support': ['Mât droit','Console','Potence','Candélabre','Encastré sol','Façade'],
-  'f-type-attache': ['Bride','Crosse','Platine','Direct'],
-  'f-etat-support': ['Bon','Moyen','Mauvais','À remplacer'],
-  'f-etat-luminaire': ['Bon','Moyen','Mauvais','À remplacer'],
-  'f-technologie': ['LED','Sodium HP','Sodium BP','Iodures métalliques','Fluo compact'],
-  'f-type-luminaire': ['Lanterne','Projecteur','Hublot','Borne','Applique','Globe'],
-  'f-classe-precision': ['C','B','A'],
-};
-const masseTextFields = ['f-id-armoire'];
-const masseKeys = {
-  'f-type-support': 'typeSupport',
-  'f-type-attache': 'typeAttache',
-  'f-etat-support': 'etatSupport',
-  'f-etat-luminaire': 'etatLuminaire',
-  'f-technologie': 'technologie',
-  'f-type-luminaire': 'typeLuminaire',
-  'f-classe-precision': 'classePrecision',
-  'f-id-armoire': 'idArmoire',
-};
+/* Champs proposés dans « Une seule caractéristique » — construits dynamiquement
+   à partir des listes réelles + des champs personnalisés (donc toujours à jour). */
+function masseFieldDefs() {
+  const L = CONFIG.lists || {};
+  const defs = [
+    { id:'f-type-support',     label:'Type de support',     key:'typeSupport',    options:L.typeSupport },
+    { id:'f-etat-support',     label:'État du support',     key:'etatSupport',    options:L.etatSupport },
+    { id:'f-hauteur',          label:'Hauteur',             key:'hauteur',        options:L.hauteur },
+    { id:'f-type-attache',     label:"Type d'attache",      key:'typeAttache',    options:L.typeAttache },
+    { id:'f-type-luminaire',   label:'Type de luminaire',   key:'typeLuminaire',  options:L.typeLuminaire },
+    { id:'f-etat-luminaire',   label:'État luminaires',     key:'etatLuminaire',  options:L.etatLuminaire },
+    { id:'f-technologie',      label:'Technologie',         key:'technologie',    options:L.technologie },
+    { id:'f-nbr-supports',     label:'Nbr supports',        key:'nbrSupports',    options:null },
+    { id:'f-nbr-luminaires',   label:'Nbr luminaires',      key:'nbrLuminaires',  options:null },
+    { id:'f-puissance',        label:'Puissance',           key:'puissance',      options:null },
+    { id:'f-id-armoire',       label:'ID Armoire',          key:'idArmoire',      options:null },
+    { id:'f-classe-precision', label:'Classe de précision', key:'classePrecision',options:['C','B','A'] },
+    { id:'f-observations',     label:'Observations',        key:'observations',   options:null },
+  ];
+  (CONFIG.customFields || []).forEach(cf => {
+    defs.push({ id:'cf:' + cf.column, label:cf.label, custom:cf.column,
+                options:(cf.type === 'select' || cf.type === 'multi') ? cf.options : null });
+  });
+  return defs;
+}
+function masseFieldById(id) { return masseFieldDefs().find(d => d.id === id); }
+// Remplit la liste déroulante du modal (appelé à chaque ouverture)
+function renderMasseFieldSelect() {
+  const sel = document.getElementById('masse-field');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">-- Sélectionner --</option>' +
+    '<option value="__trame">🗂 Trame prédéfinie (toutes les caractéristiques)</option>' +
+    masseFieldDefs().map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.label)}</option>`).join('');
+}
 
 document.getElementById('masse-field').addEventListener('change', function() {
   const f = this.value;
@@ -4464,10 +4969,11 @@ document.getElementById('masse-field').addEventListener('change', function() {
     if (tplBar) { renderMasseTplBar(); tplBar.style.display = 'flex'; }
     return;
   }
-  if (masseOptions[f]) {
-    sel.innerHTML = masseOptions[f].map(o => `<option>${o}</option>`).join('');
+  const def = masseFieldById(f);
+  if (def && def.options && def.options.length) {
+    sel.innerHTML = def.options.map(o => `<option>${escapeHtml(o)}</option>`).join('');
     selRow.style.display = 'block'; txtRow.style.display = 'none';
-  } else if (masseTextFields.includes(f)) {
+  } else if (def) {
     selRow.style.display = 'none'; txtRow.style.display = 'block';
   } else {
     selRow.style.display = 'none'; txtRow.style.display = 'none';
@@ -4522,6 +5028,13 @@ function renderMasseTplBar() {
       <div class="tpl-name">${escapeHtml(t.name)}</div>
     </div>`).join('');
 }
+const _FID_LIST = { 'f-type-support':'typeSupport','f-etat-support':'etatSupport','f-type-attache':'typeAttache','f-type-luminaire':'typeLuminaire','f-etat-luminaire':'etatLuminaire','f-technologie':'technologie','f-hauteur':'hauteur' };
+function _resolveOption(fid, v){
+  const listKey = _FID_LIST[fid];
+  if (!listKey || !CONFIG.lists[listKey]) return v;
+  const want = _normVal(v);
+  return CONFIG.lists[listKey].find(o => _normVal(o) === want) || v;
+}
 async function applyTemplateToSelection(i) {
   const t = getAllTemplates()[i];
   if (!t) return;
@@ -4530,7 +5043,7 @@ async function applyTemplateToSelection(i) {
   targets.forEach(p => {
     Object.entries(t.values || {}).forEach(([fid, v]) => {
       const key = FIELD_TO_KEY[fid];
-      if (key) p[key] = v;
+      if (key) p[key] = _resolveOption(fid, v);
     });
     if (t.custom && Object.keys(t.custom).length) {
       p.custom = Object.assign({}, p.custom || {}, t.custom);
@@ -4554,6 +5067,7 @@ function openModalMasse() {
   const pts = state.points.filter(p => p.dansPanier);
   if (!pts.length) { showToast('Aucun point sélectionné', 'error'); return; }
   document.getElementById('masse-count').textContent = pts.length;
+  renderMasseFieldSelect();
   document.getElementById('masse-field').value = '';
   document.getElementById('masse-value-row').style.display = 'none';
   document.getElementById('masse-text-row').style.display = 'none';
@@ -4568,15 +5082,18 @@ function closeModalMasse(e) {
 async function applyMasse() {
   const field = document.getElementById('masse-field').value;
   if (field === '__trame') { showToast('Touchez une trame dans le bandeau pour l\u2019appliquer', 'error'); return; }
-  const key = masseKeys[field];
-  if (!field || !key) { showToast('Sélectionnez un champ', 'error'); return; }
-  const value = masseTextFields.includes(field)
-    ? document.getElementById('masse-text').value.trim()
-    : document.getElementById('masse-value').value;
+  const def = masseFieldById(field);
+  if (!field || !def) { showToast('Sélectionnez un champ', 'error'); return; }
+  const value = (def.options && def.options.length)
+    ? document.getElementById('masse-value').value
+    : document.getElementById('masse-text').value.trim();
   const targets = state.points.filter(p => p.dansPanier);
   if (!targets.length) { showToast('Aucun point sélectionné', 'error'); return; }
   const entries = targets.map(p => ({ id: p.id, before: cloneEntry(p) }));
-  targets.forEach(p => { p[key] = value; });
+  targets.forEach(p => {
+    if (def.custom) { p.custom = p.custom || {}; p.custom[def.custom] = value; }
+    else p[def.key] = value;
+  });
   pushUndo('Modif. masse (' + targets.length + ' pts)', entries);
   saveLocal(); closeModalMasse(); renderPanier(); refreshMapMarkers();
   showToast(targets.length + ' point' + (targets.length > 1 ? 's' : '') + ' modifié' + (targets.length > 1 ? 's' : '') + ' — sync…', 'success');
@@ -4635,7 +5152,7 @@ async function applyMasseAll() {
 updateOfflineBanner();
 
 // ── GOOGLE APPS SCRIPT CONFIG ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbww2iZN21IM53ikvY1QigN9qewDYodvd3GsgGEHGBHjq34GexDIUIneUvHhNjYucCc8/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzI5xYwtoeIR7R4eEmCgBUxNP8DF1dE3yNhBlHloQBWaTgg-WHVgsZqanoAzOqPuc25/exec';
 
 let syncQueue = [];
 let isSyncing = false;
@@ -4659,7 +5176,7 @@ function colVal(r, name) {
 // ── LIRE les armoires depuis le Sheet (redescente serveur → app) ──
 function mapServerArmoire(r) {
   const custom = {};
-  (CONFIG.armCustomFields || []).forEach(cf => { if (r[cf.column] !== undefined) custom[cf.column] = r[cf.column]; });
+  (CONFIG.armCustomFields || []).forEach(cf => { const v = colVal(r, cf.column); if (v !== undefined) custom[cf.column] = v; });
   const photos = {};
   const ph = String(r['Photos'] || '');
   ARM_PHOTO_TYPES.forEach(t => { photos[t] = ph.indexOf(t) >= 0; });
@@ -4745,7 +5262,10 @@ function _cfgTabMissing(e) {
     showToast('Ajoutez un onglet « Config » dans le Sheet pour partager les réglages', 'error');
   }
 }
+let _configPushing = false;
+let _configDirty = false;
 async function pushConfigToSheets() {
+  _configPushing = true; _configDirty = true;
   if (!navigator.onLine) return;   // repoussé par la synchro suivante (horodatage local plus récent)
   try {
     const json = JSON.stringify(CONFIG);
@@ -4761,9 +5281,11 @@ async function pushConfigToSheets() {
     const r = await res.json();
     if (r.error) throw new Error(r.error);
   } catch (e) { console.warn('push config:', e); _cfgTabMissing(e); }
+  finally { _configPushing = false; }
 }
 async function syncConfigWithSheets(silent) {
   if (!navigator.onLine) return;
+  if (_configPushing) return;   // une écriture locale est en cours → on ne lit pas maintenant
   try {
     const res = await fetch(SCRIPT_URL + '?sheet=Config');
     const data = await res.json();
@@ -4776,10 +5298,32 @@ async function syncConfigWithSheets(silent) {
       let json = '';
       for (let i = 1; i <= 20; i++) json += String(row['JSON' + i] || '');
       const parsed = JSON.parse(json);
+      // FUSION ADDITIVE des listes et options : on ne perd jamais une option ajoutée localement.
+      const localLists = JSON.parse(JSON.stringify(CONFIG.lists || {}));
+      const localCF = JSON.parse(JSON.stringify(CONFIG.customFields || []));
+      if (parsed.lists) {
+        Object.keys(localLists).forEach(k => {
+          const merged = (parsed.lists[k] || []).slice();
+          localLists[k].forEach(o => { if (!merged.includes(o)) merged.push(o); });
+          parsed.lists[k] = merged;
+        });
+      }
+      if (Array.isArray(parsed.customFields)) {
+        localCF.forEach(lcf => {
+          const rcf = parsed.customFields.find(c => c.column === lcf.column);
+          if (rcf && Array.isArray(lcf.options)) {
+            rcf.options = rcf.options || [];
+            lcf.options.forEach(o => { if (!rcf.options.includes(o)) rcf.options.push(o); });
+          } else if (!rcf) {
+            parsed.customFields.push(lcf);   // champ perso créé localement, absent du serveur
+          }
+        });
+      }
       await DB.put('meta', { k: 'config', v: parsed });
-      await loadConfig();                          // fusion + application immédiate
+      await loadConfig();
+      if (_configDirty) pushConfigToSheets();      // on repartage la version fusionnée
       if (currentScreen === 'settings') renderSettings();
-      if (!silent) showToast('Réglages synchronisés depuis le Sheet ✓', 'success');
+      if (!silent) showToast('Réglages synchronisés ✓', 'success');
     } else if (localTs > remoteTs) {
       pushConfigToSheets();                        // cet appareil est plus récent → il partage
     }
@@ -4789,7 +5333,8 @@ async function syncConfigWithSheets(silent) {
 function mapServerRow(r) {
   const custom = {};
   (CONFIG.customFields || []).forEach(cf => {
-    if (r[cf.column] !== undefined) custom[cf.column] = r[cf.column];
+    const v = colVal(r, cf.column);
+    if (v !== undefined) custom[cf.column] = v;
   });
   return {
     id: String(r['ID'] || ''),
@@ -4811,12 +5356,32 @@ function mapServerRow(r) {
     lat: parseFloat(r['Latitude']) || null,
     dansPanier: r['Dans le Panier'] === 'TRUE' || r['Dans le Panier'] === true,
     aDeposer: String(colVal(r, 'À déposer') || '').toUpperCase() === 'OUI',
+    _categorieSheet: String(colVal(r, 'Catégorie') || '').trim(),
     chantier: r['Chantier'] || '',
     technicien: r['Technicien'] || '',
     date: r['Date'] || '',
     custom: custom,
     photos: {}
   };
+}
+// Applique les valeurs d'une trame à un point pour ses champs restés vides (non destructif).
+function applyCategorieToPoint(pt){
+  const name = pt._categorieSheet || (pt.custom && pt.custom['Catégorie']) || '';
+  if (!name) return pt;
+  const t = (typeof getAllTemplates === 'function') ? getAllTemplates().find(x => x.name.toLowerCase() === String(name).toLowerCase()) : null;
+  if (!t) return pt;
+  const F2K = { 'f-nbr-supports':'nbrSupports','f-type-support':'typeSupport','f-etat-support':'etatSupport','f-hauteur':'hauteur','f-type-attache':'typeAttache','f-nbr-luminaires':'nbrLuminaires','f-type-luminaire':'typeLuminaire','f-etat-luminaire':'etatLuminaire','f-technologie':'technologie','f-puissance':'puissance' };
+  Object.entries(t.values || {}).forEach(([fid, v]) => {
+    const k = F2K[fid];
+    if (k && (pt[k] === '' || pt[k] == null)) pt[k] = (typeof _resolveOption === 'function') ? _resolveOption(fid, v) : v;
+  });
+  Object.entries(t.custom || {}).forEach(([col, v]) => {
+    if (!pt.custom) pt.custom = {};
+    if (pt.custom[col] === '' || pt.custom[col] == null) pt.custom[col] = v;
+  });
+  if (!pt.custom) pt.custom = {};
+  if (!pt.custom['Catégorie']) pt.custom['Catégorie'] = name;
+  return pt;
 }
 // ── Polling automatique : reflète les modifs faites dans le Sheet (ajouts ET suppressions) ──
 let pollTimer = null, isLoading = false;
@@ -4856,6 +5421,9 @@ async function loadFromSheets(silent) {
     if (!navigator.onLine) return;
     try {
       if (!silent) showToast('Synchronisation serveur…');
+      // Les trames doivent être connues AVANT de lire les points : la colonne « Catégorie »
+      // du Sheet a besoin de la trame correspondante pour compléter la fiche.
+      if (!SHEET_TEMPLATES.length) { try { await loadTemplatesFromSheets(true); } catch (e) {} }
       const url = SCRIPT_URL + '?sheet=Points%20Lumineux&chantier=' + encodeURIComponent(state.chantier);
       const res = await fetch(url);
       const data = await res.json();
@@ -4872,7 +5440,7 @@ async function loadFromSheets(silent) {
       (data.rows || []).forEach(r => {
         const id = String(r['ID'] || '');
         if (!id || byId.has(id) || tombstones.has(id)) return;
-        byId.set(id, mapServerRow(r));
+        byId.set(id, applyCategorieToPoint(mapServerRow(r)));
         added++;
       });
 
@@ -4886,7 +5454,7 @@ async function loadFromSheets(silent) {
         if (!id || tombstones.has(id) || pendingIds.has(id)) return;
         const existing = byId.get(id);
         if (!existing) return; // pas encore en local → déjà géré par l'ajout ci-dessus
-        const fresh = mapServerRow(r);
+        const fresh = applyCategorieToPoint(mapServerRow(r));
         fresh.photos = existing.photos;       // indicateurs photos gérés en local (IndexedDB), pas dans le Sheet
         fresh.dansPanier = existing.dansPanier; // le panier est une sélection LOCALE : jamais écrasée par le serveur
         const changed = fresh.lat !== existing.lat || fresh.lng !== existing.lng
@@ -5016,6 +5584,21 @@ async function syncPointToSheets(pt) {
   }
 }
 
+async function refreshTilesInfo(){
+  try {
+    const c = await caches.open('audit-ep-tiles-v1');
+    const keys = await c.keys();
+    const el = document.getElementById('set-tiles-count'); if (el) el.textContent = keys.length + ' tuile(s)';
+    // estimation : ~12 Ko/tuile en moyenne
+    const mb = (keys.length * 12 / 1024).toFixed(1);
+    const es = document.getElementById('set-tiles-size'); if (es) es.textContent = '~ ' + mb + ' Mo';
+    // si l'API de stockage existe, on affiche le vrai chiffre
+    if (navigator.storage && navigator.storage.estimate) {
+      const est = await navigator.storage.estimate();
+      if (est && est.usage && es) es.textContent = '~ ' + (est.usage/1048576).toFixed(0) + ' Mo (total app)';
+    }
+  } catch (e) {}
+}
 async function clearTileCache() {
   if (!confirm('Vider les cartes téléchargées ?\n\nCela libère de l\u2019espace. Vos points, photos et réglages ne sont PAS touchés.\nIl faudra re-précharger les zones pour les revoir hors ligne.')) return;
   try {
