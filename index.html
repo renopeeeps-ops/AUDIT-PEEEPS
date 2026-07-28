@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v72</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v73</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -4358,9 +4358,13 @@ async function sheetTplPhoto(si, input){
     if (r.error) throw new Error(r.error);
     t.photoUrl = r.url;
     t.thumb = driveImageUrl(r.url);
-    // le serveur a déjà inscrit le lien dans la cellule Photo → on ne réécrit PAS tout le tableau
     renderSettings(); renderTemplatesBar();
-    showToast('Photo de trame enregistrée dans Drive ✓', 'success');
+    // le serveur inscrit lui-même le lien dans la cellule Photo (v3.9) ; on remonte le diagnostic.
+    if (r.ecritDansSheet === false) {
+      showToast('Photo dans Drive ✓ mais lien NON écrit : ' + (r.info || 'vérifier le mode Tableau du Sheet'), 'error');
+    } else {
+      showToast('Photo enregistrée + lien écrit dans le Sheet ✓', 'success');
+    }
   } catch (e) { showToast('Échec photo trame : ' + e.message, 'error'); }
 }
 function sheetTplColor(name, color){
