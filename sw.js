@@ -56,14 +56,22 @@ self.addEventListener('fetch', (e) => {
       const cache = await caches.open(TILE_CACHE);
       const hit = await cache.match(req);
       if (hit) return hit;
-      try {
-        const resp = await fetch(req);
-        if (resp && (resp.ok || resp.type === 'opaque')) cache.put(req, resp.clone()).catch(() => {});
-        return resp;
-      } catch (err) {
-        // hors réseau et tuile non préchargée → tuile vide (comportement attendu)
-        return new Response('', { status: 504, statusText: 'tile offline' });
+      // 2 tentatives réseau avec petit délai : évite les tuiles blanches sur réseau instable
+      for (let essai = 0; essai < 2; essai++) {
+        try {
+          const ctrl = new AbortController();
+          const to = setTimeout(() => ctrl.abort(), 8000);
+          const resp = await fetch(req, { signal: ctrl.signal });
+          clearTimeout(to);
+          if (resp && (resp.ok || resp.type === 'opaque')) {
+            cache.put(req, resp.clone()).catch(() => {});
+            return resp;
+          }
+        } catch (err) { /* on réessaie une fois */ }
       }
+      // échec réseau : image PNG transparente 1×1 (pas de carré blanc, la carte reste lisible)
+      const px = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+      return new Response(px, { headers: { 'Content-Type': 'image/png' } });
     })());
     return;
   }

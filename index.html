@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v71</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v72</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -5152,7 +5152,7 @@ async function applyMasseAll() {
 updateOfflineBanner();
 
 // ── GOOGLE APPS SCRIPT CONFIG ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbww2iZN21IM53ikvY1QigN9qewDYodvd3GsgGEHGBHjq34GexDIUIneUvHhNjYucCc8/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzI5xYwtoeIR7R4eEmCgBUxNP8DF1dE3yNhBlHloQBWaTgg-WHVgsZqanoAzOqPuc25/exec';
 
 let syncQueue = [];
 let isSyncing = false;
@@ -5356,6 +5356,7 @@ function mapServerRow(r) {
     lat: parseFloat(r['Latitude']) || null,
     dansPanier: r['Dans le Panier'] === 'TRUE' || r['Dans le Panier'] === true,
     aDeposer: String(colVal(r, 'À déposer') || '').toUpperCase() === 'OUI',
+    observations: colVal(r, 'Observations') || '',
     _categorieSheet: String(colVal(r, 'Catégorie') || '').trim(),
     chantier: r['Chantier'] || '',
     technicien: r['Technicien'] || '',
@@ -5557,6 +5558,7 @@ async function syncPointToSheets(pt) {
         'Photos': PHOTO_TYPES.filter(t => pt.photos && pt.photos[t]).join(','),
         'Dans le Panier': pt.dansPanier ? 'TRUE' : 'FALSE',
         'À déposer': pt.aDeposer ? 'OUI' : '',
+        'Observations': pt.observations || '',
         'Chantier': pt.chantier,
         'Technicien': pt.technicien,
         'Date': pt.date
