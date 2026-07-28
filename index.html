@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v78</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v82</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -2028,42 +2028,45 @@ function goBack() {
 }
 
 // ── MAP ──
-let map, markersLayer, pointsCluster, osmLayer, satLayer, ignLayer, baseMode = 0; // 0=Plan, 1=Satellite IGN, 2=Satellite Esri
+let map, markersLayer, pointsCluster, _canvasRenderer, osmLayer, satLayer, ignLayer, baseMode = 0; // 0=Plan, 1=Satellite IGN, 2=Satellite Esri
 const markersById = new Map(); // id point → marqueur Leaflet (pour le déplacement au doigt)
 const armoireMarkersById = new Map(); // id armoire → marqueur Leaflet
 function initMap() {
   if (map) return; // évite une double init
-  map = L.map('map', { zoomControl: false, attributionControl: false, maxZoom: 21 }).setView([16.25, -61.55], 11);
-  osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 21,
-    maxNativeZoom: 19,
-    crossOrigin: true,
-    attribution: '© OpenStreetMap'
-  }).addTo(map);
+  map = L.map('map', {
+    zoomAnimation: false, markerZoomAnimation: false, fadeAnimation: false, preferCanvas: true, zoomControl: false, attributionControl: false, maxZoom: 21 }).setView([16.25, -61.55], 11);
+  _canvasRenderer = L.canvas({ padding: 0.5 });
+  const _tileOpts = {
+    updateWhenIdle: true,        // ne charge les tuiles qu'une fois le doigt relâché → bien plus fluide
+    updateWhenZooming: false,    // pas de rechargement pendant l'animation de zoom
+    keepBuffer: 4,               // garde une marge de tuiles autour → moins de trous au pan
+    detectRetina: false          // évite de charger 4× plus de tuiles sur écrans haute densité
+  };
+  osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', Object.assign({
+    maxZoom: 21, maxNativeZoom: 19, crossOrigin: true, attribution: '© OpenStreetMap'
+  }, _tileOpts)).addTo(map);
   // Imagerie satellite Esri World Imagery (gratuite, sans clé) — l'autre fond de carte alterné au bouton.
-  satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 21,
-    maxNativeZoom: 18,
-    crossOrigin: true,
-    attribution: 'Tiles © Esri'
-  });
+  satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', Object.assign({
+    maxZoom: 21, maxNativeZoom: 18, crossOrigin: true, attribution: 'Tiles © Esri'
+  }, _tileOpts));
   // Orthophotos IGN (Géoplateforme, gratuit sans clé) — imagerie française haute résolution, couvre la Guadeloupe.
-  ignLayer = L.tileLayer('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
-    maxZoom: 21,
-    maxNativeZoom: 19,
-    crossOrigin: true,
-    attribution: 'Orthophotos © IGN'
-  });
+  ignLayer = L.tileLayer('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', Object.assign({
+    maxZoom: 21, maxNativeZoom: 19, crossOrigin: true, attribution: 'Orthophotos © IGN'
+  }, _tileOpts));
   markersLayer = L.layerGroup().addTo(map);   // armoires : toujours visibles, non regroupées
+  _canvasRenderer.addTo(map);
   // Points : regroupés en clusters pour rester fluide même avec des milliers de points.
   // Repli automatique sur un simple calque si le plugin n'est pas chargé (1er lancement hors-ligne).
   pointsCluster = (typeof L.markerClusterGroup === 'function')
     ? L.markerClusterGroup({
         chunkedLoading: true,          // ajoute les marqueurs par lots → pas de gel de l'UI
-        maxClusterRadius: 60,
-        disableClusteringAtZoom: 18,   // au niveau rue, on voit chaque point
+        chunkInterval: 100, chunkDelay: 20,
+        maxClusterRadius: 70,          // regroupe un peu plus → moins d'objets à dessiner
+        disableClusteringAtZoom: 19,   // on ne "dé-cluster" qu'au zoom terrain
         spiderfyOnMaxZoom: false,
-        removeOutsideVisibleBounds: true
+        removeOutsideVisibleBounds: true,
+        animate: false,                // pas d'animation de cluster = beaucoup plus fluide
+        animateAddingMarkers: false
       })
     : L.layerGroup();
   pointsCluster.addTo(map);
@@ -2751,7 +2754,39 @@ function zoomToArmoireFilter() {
 }
 
 let mapDirty = false;
+function popupPointHTML(id) {
+  const pt = state.points.find(p => p.id === id);
+  if (!pt) return '';
+  return `<div class="popup-id">${escapeHtml(pt.id)}</div>
+    <div class="popup-title">${escapeHtml(pt.typeSupport || 'Point lumineux')}</div>
+    <div style="font-size:12px;color:#94a3b8">${escapeHtml(pt.technologie || '')} ${pt.puissance ? escapeHtml(pt.puissance) + 'W' : ''}</div>
+    <div class="popup-actions">
+      <button class="popup-btn popup-btn-edit" onclick="editFromMap('${pt.id}')">Modifier</button>
+      <button class="popup-btn popup-btn-move" onclick="moveFromMap('${pt.id}')" title="Déplacer">✥</button>
+      <button class="popup-btn popup-btn-del" onclick="deleteFromMap('${pt.id}')" title="Supprimer">🗑</button>
+    </div>`;
+}
+function popupArmoireHTML(id) {
+  const arm = state.armoires.find(a => String(a.id) === String(id));
+  if (!arm) return '';
+  const nbPts = _armCounts ? (_armCounts[String(arm.id).trim()] || 0) : 0;
+  return `<div class="popup-id" style="color:#fb923c">${escapeHtml(arm.id)}</div>
+    <div class="popup-title">Armoire électrique</div>
+    <div style="font-size:12px;color:#94a3b8">${nbPts} point${nbPts > 1 ? 's' : ''} rattaché${nbPts > 1 ? 's' : ''}</div>
+    <div class="popup-actions">
+      <button class="popup-btn popup-btn-edit" onclick="editArmoireFromMap('${arm.id}')">Modifier</button>
+      <button class="popup-btn popup-btn-move" onclick="moveArmoireFromMap('${arm.id}')" title="Déplacer">✥</button>
+      <button class="popup-btn popup-btn-del" onclick="deleteArmoireFromMap('${arm.id}')" title="Supprimer">🗑</button>
+    </div>`;
+}
+let _armCounts = null;   // pré-comptage des points par armoire (calculé une fois par refresh)
 function refreshMapMarkers() {
+  // Pré-compte les points par armoire UNE fois (au lieu d'un filter par armoire = O(n²)).
+  _armCounts = {};
+  state.points.forEach(p => {
+    const a = String(p.idArmoire || '').trim();
+    if (a) _armCounts[a] = (_armCounts[a] || 0) + 1;
+  });
   if (currentScreen !== 'map') { mapDirty = true; return; }   // reconstruit au retour sur la carte
   mapDirty = false;
   if (!markersLayer) return;
@@ -2767,18 +2802,14 @@ function refreshMapMarkers() {
     if (state.filterArmoire.length && !state.filterArmoire.includes(String(pt.idArmoire))) return;
     if (!champFilterOK(pt)) return;
     const color = getMarkerColor(pt);
-    const icon = L.divIcon({ className: '', html: markerShapeHTML(pt, color), iconSize: [18,18], iconAnchor: [9,9] });
-    const marker = L.marker([pt.lat, pt.lng], { icon });
-    marker.bindPopup(`
-      <div class="popup-id">${escapeHtml(pt.id)}</div>
-      <div class="popup-title">${escapeHtml(pt.typeSupport || 'Point lumineux')}</div>
-      <div style="font-size:12px;color:#94a3b8">${escapeHtml(pt.technologie || '')} ${pt.puissance ? escapeHtml(pt.puissance)+'W' : ''}</div>
-      <div class="popup-actions">
-        <button class="popup-btn popup-btn-edit" onclick="editFromMap('${pt.id}')">Modifier</button>
-        <button class="popup-btn popup-btn-move" onclick="moveFromMap('${pt.id}')" title="Déplacer sur la carte">✥</button>
-        <button class="popup-btn popup-btn-del" onclick="deleteFromMap('${pt.id}')" title="Supprimer">🗑</button>
-      </div>
-    `, { maxWidth: 260 });
+    let marker;
+    if (isSolarPoint(pt)) {
+      marker = L.marker([pt.lat, pt.lng], { icon: L.divIcon({ className:'', html: markerShapeHTML(pt, color), iconSize:[18,18], iconAnchor:[9,9] }) });
+    } else {
+      marker = L.circleMarker([pt.lat, pt.lng], { renderer: _canvasRenderer, radius: 7, color: color.border, weight: 2, fillColor: color.fill, fillOpacity: 1 });
+    }
+    marker._ptId = pt.id;
+    marker.bindPopup(() => popupPointHTML(marker._ptId), { maxWidth: 260 });
     markersById.set(pt.id, marker);
     ptMarkers.push(marker);
   });
@@ -2792,7 +2823,6 @@ function refreshMapMarkers() {
     if (!arm.lat || !arm.lng) return;
     if (state.chantier && String(arm.chantier || '') !== String(state.chantier)) return;
     if (state.filterArmoire.length && !state.filterArmoire.includes(String(arm.id))) return;
-    const nbPts = state.points.filter(p => String(p.idArmoire || '').trim() === String(arm.id).trim()).length;
     const icon = L.divIcon({
       className: '',
       html: `<div style="width:22px;height:22px;background:#fb923c;border:2px solid white;border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center">
@@ -2802,16 +2832,8 @@ function refreshMapMarkers() {
     });
     const marker = L.marker([arm.lat, arm.lng], { icon, zIndexOffset: 500 }).addTo(markersLayer);
     armoireMarkersById.set(arm.id, marker);
-    marker.bindPopup(`
-      <div class="popup-id" style="color:#fb923c">${escapeHtml(arm.id)}</div>
-      <div class="popup-title">Armoire électrique</div>
-      <div style="font-size:12px;color:#94a3b8">${nbPts} point${nbPts > 1 ? 's' : ''} rattaché${nbPts > 1 ? 's' : ''}</div>
-      <div class="popup-actions">
-        <button class="popup-btn popup-btn-edit" onclick="editArmoireFromMap('${arm.id}')">Modifier</button>
-        <button class="popup-btn popup-btn-move" onclick="moveArmoireFromMap('${arm.id}')" title="Déplacer sur la carte">✥</button>
-        <button class="popup-btn popup-btn-del" onclick="deleteArmoireFromMap('${arm.id}')" title="Supprimer">🗑</button>
-      </div>
-    `, { maxWidth: 240 });
+    marker._armId = arm.id;
+    marker.bindPopup(() => popupArmoireHTML(marker._armId), { maxWidth: 260 });
   });
   const _fs = _filterSet();
   const shown = _fs.size
@@ -2915,8 +2937,19 @@ function moveFromMap(id) {
 }
 
 function enableMarkerDrag(marker, id) {
-  // Icône distincte le temps du déplacement, pour que le technicien voie
-  // clairement quel point est en train d'être repositionné.
+  // CircleMarker (canvas) : pas de drag natif → on déplace au doigt/souris via la carte.
+  if (typeof marker.setStyle === 'function' && typeof marker.setIcon !== 'function') {
+    marker.setStyle({ fillColor: '#a78bfa', color: '#fff', weight: 3, radius: 10 });
+    showToast('Touchez la nouvelle position du point sur la carte', '');
+    const onClick = (e) => {
+      map.off('click', onClick);
+      marker.setLatLng(e.latlng);
+      confirmMarkerMove(marker, id);
+    };
+    map.on('click', onClick);
+    return;
+  }
+  // Marqueur classique (étoile) : drag natif Leaflet.
   marker.setIcon(L.divIcon({
     className: '',
     html: `<div style="width:20px;height:20px;border-radius:50%;background:#a78bfa;border:3px solid white;box-shadow:0 0 0 6px rgba(167,139,250,.3),0 2px 8px rgba(0,0,0,.5)"></div>`,
@@ -2928,7 +2961,7 @@ function enableMarkerDrag(marker, id) {
 }
 
 async function confirmMarkerMove(marker, id) {
-  marker.dragging.disable();
+  if (marker.dragging && typeof marker.dragging.disable === 'function') marker.dragging.disable();
   const { lat, lng } = marker.getLatLng();
   const pt = state.points.find(p => p.id === id);
   if (!pt) { refreshMapMarkers(); return; }
@@ -3576,7 +3609,7 @@ const CONFIG_DEFAULT = {
   customFields: [
     { key: 'solaire', label: 'Solaire', column: 'Solaire', type: 'select',
       options: ['Solaire faisable', 'Solaire infaisable', 'Solaire à projeter'] },
-    { key: 'categorielampadaire', label: 'Catégorie Lampadaire', column: 'Catégorie Lampadaire', type: 'text', options: [] },
+    { key: 'categorielampadaire', label: 'Catégorie', column: 'Catégorie', type: 'trames', options: [] },
     { key: 'marqueluminaire', label: 'Marque luminaire', column: 'Marque luminaire', type: 'text', options: [] },
     { key: 'gammeluminaire', label: 'Gamme luminaire', column: 'Gamme luminaire', type: 'text', options: [] }
   ],
