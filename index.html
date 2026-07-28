@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v74</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v75</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -4353,7 +4353,7 @@ async function sheetTplPhoto(si, input){
     const blob = await downscaleToBlob(file);
     const b64 = await blobToBase64(blob);
     const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify({ action:'tramePhoto', name:t.name, data:b64, mime:'image/jpeg' }) });
+      body: JSON.stringify({ action:'tramePhoto', name:t.name, chantier: state.chantier || '', data:b64, mime:'image/jpeg' }) });
     const r = await res.json();
     if (r.error) throw new Error(r.error);
     t.photoUrl = r.url;
