@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v75</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v76</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -3720,8 +3720,10 @@ function renderCustomFields() {
 // Lit les valeurs des champs personnalisés → objet { colonne: valeur }
 function readCustomFields() {
   const out = {};
-  document.querySelectorAll('#custom-fields-pl [data-col]').forEach(el => {
-    out[el.getAttribute('data-col')] = readFieldEl(el);
+  const cols = new Set((CONFIG.customFields || []).map(cf => cf.column));
+  document.querySelectorAll('#screen-form [data-col]').forEach(el => {
+    const col = el.getAttribute('data-col');
+    if (cols.has(col)) out[col] = readFieldEl(el);
   });
   return out;
 }
@@ -3749,8 +3751,10 @@ function renderArmCustomFields() {
 }
 function readArmCustomFields() {
   const out = {};
-  document.querySelectorAll('#custom-fields-arm [data-col]').forEach(el => {
-    out[el.getAttribute('data-col')] = readFieldEl(el);
+  const cols = new Set((CONFIG.armCustomFields || []).map(cf => cf.column));
+  document.querySelectorAll('#screen-armoire-form [data-col]').forEach(el => {
+    const col = el.getAttribute('data-col');
+    if (cols.has(col)) out[col] = readFieldEl(el);
   });
   return out;
 }
@@ -3847,14 +3851,14 @@ const ARM_ORDER_DEFS = [
 ];
 // Défs complètes = champs standard (dont ceux qui manquaient) + un item par champ personnalisé
 function plOrderDefs() {
-  const base = PL_ORDER_DEFS.filter(d => d.key !== 'custom').slice();
+  const base = PL_ORDER_DEFS.filter(d => d.key !== 'custom' && d.el !== 'custom-fields-pl').slice();
   base.push({ key:'depose', label:'Point à déposer', el:'toggle-depose' });
   (CONFIG.customFields || []).forEach(cf =>
     base.push({ key:'cf:' + cf.key, label:cf.label + ' (perso)', el:'cf-' + cf.key }));
   return base;
 }
 function armOrderDefs() {
-  const base = ARM_ORDER_DEFS.filter(d => d.key !== 'custom').slice();
+  const base = ARM_ORDER_DEFS.filter(d => d.key !== 'custom' && d.el !== 'custom-fields-arm').slice();
   (CONFIG.armCustomFields || []).forEach(cf =>
     base.push({ key:'acf:' + cf.key, label:cf.label + ' (perso)', el:'acf-' + cf.key }));
   return base;
@@ -3879,7 +3883,8 @@ function reorderForm(formSel, defs, saved) {
   });
   const keys = effectiveOrder(defs, saved).filter(k => byKey[k]);
   if (keys.length < 2) return;
-  const nodes = keys.map(k => byKey[k]);
+  const vus = new Set();
+  const nodes = keys.map(k => byKey[k]).filter(nd => { if (vus.has(nd)) return false; vus.add(nd); return true; });
   const parent = nodes[0].parentNode;
   // point d'insertion = position actuelle du bloc géré le plus haut dans la fiche
   const earliest = nodes.reduce((a, b) =>
