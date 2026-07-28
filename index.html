@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v83</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v84</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -1666,12 +1666,26 @@ async function precacheVisibleArea() {
   const prog = document.getElementById('cache-progress');
   const bar = document.getElementById('cache-bar'), pct = document.getElementById('cache-pct'), lbl = document.getElementById('cache-lbl');
   prog.classList.add('show'); lbl.textContent = 'Préchargement carte (' + urls.length + ' tuiles)…';
-  let done = 0; const total = urls.length || 1; let i = 0;
-  const loadOne = (url) => new Promise((res) => { const im = new Image(); im.onload = im.onerror = () => res(); im.src = url; });
-  const worker = async () => { while (i < urls.length) { await loadOne(urls[i++]); done++; const p = Math.round(done / total * 100); bar.style.width = p + '%'; pct.textContent = p + ' %'; } };
-  await Promise.all(Array.from({ length: 6 }, worker));
+  let done = 0, ok = 0; const total = urls.length || 1; let i = 0;
+  // Ouvre directement le cache des tuiles pour y ÉCRIRE chaque tuile (fiable hors-ligne, iOS compris).
+  let tileCache = null;
+  try { tileCache = await caches.open('audit-ep-tiles-v1'); } catch (e) {}
+  const loadOne = async (url) => {
+    try {
+      // déjà en cache ? on ne re-télécharge pas
+      if (tileCache) { const hit = await tileCache.match(url); if (hit) { ok++; return; } }
+      // 'cors' + tuiles servies avec en-têtes CORS (OSM/IGN/Esri le font) → réponse cachable
+      // qui correspond exactement à la requête de Leaflet (crossOrigin:true).
+      const resp = await fetch(url, { mode: 'cors', cache: 'no-store' });
+      if (tileCache && resp && (resp.ok || resp.type === 'opaque')) { await tileCache.put(url, resp.clone()); ok++; }
+    } catch (e) { /* tuile en échec : on continue */ }
+  };
+  const worker = async () => { while (i < urls.length) { await loadOne(urls[i++]); done++; if (done % 4 === 0 || done === total) { const p = Math.round(done / total * 100); bar.style.width = p + '%'; pct.textContent = p + ' %'; } } };
+  await Promise.all(Array.from({ length: 8 }, worker));
   prog.classList.remove('show'); bar.style.width = '0%'; pct.textContent = '0 %';
-  showToast('Carte préchargée ✓ (' + total + ' tuiles)', 'success');
+  if (ok === 0) showToast('Échec du préchargement — vérifiez le réseau', 'error');
+  else if (ok < total) showToast('Carte préchargée : ' + ok + '/' + total + ' tuiles (réseau instable, relancez pour compléter)', 'success');
+  else showToast('Carte préchargée ✓ (' + ok + ' tuiles) — dispo hors-ligne', 'success');
   refreshDiag();
 }
 
