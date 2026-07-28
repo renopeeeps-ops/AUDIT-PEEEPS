@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v77</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v78</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -1677,25 +1677,36 @@ async function precacheVisibleArea() {
 
 /* ---- Export complet CSV (filet de sécurité local, indépendant du réseau) ---- */
 function csvCell(v) { v = (v == null ? '' : String(v)); return /[",;\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function _telecharger(csvText, filename) {
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
 async function exportAll() {
+  const ch = state.chantier || '';
+  const memeChantier = x => !ch || String(x.chantier || '') === String(ch);
+  const suffixe = (ch || 'export').replace(/\W+/g, '_') + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+
+  // ── Points (chantier courant) ──
   let points = [];
   try { points = await DB.all('points'); } catch (e) { points = state.points || []; }
+  points = points.filter(memeChantier);
   const cols = ['id', 'idArmoire', 'classePrecision', 'sourcePosition', 'gpsAccuracy', 'lat', 'lng', 'nbrSupports', 'typeSupport', 'etatSupport', 'hauteur', 'typeAttache', 'nbrLuminaires', 'typeLuminaire', 'etatLuminaire', 'technologie', 'puissance', 'observations', 'photos', 'dansPanier', 'chantier', 'technicien', 'date'];
   const lines = points.map((p) => cols.map((c) => {
     let v = p[c];
     if (c === 'photos' && v && typeof v === 'object') v = PHOTO_TYPES.filter((t) => v[t]).join(',');
     return csvCell(v);
   }).join(';'));
-  const csv = '\uFEFF' + cols.join(';') + '\n' + lines.join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'audit_ep_' + (state.chantier || 'export').replace(/\W+/g, '_') + '_' + new Date().toISOString().slice(0, 10) + '.csv';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  // Export armoires (2e fichier, si présentes)
+  _telecharger('\uFEFF' + cols.join(';') + '\n' + lines.join('\n'), 'audit_points_' + suffixe);
+
+  // ── Armoires (chantier courant) — 2e fichier, avec un délai pour ne pas être bloqué ──
   let arms = [];
   try { arms = await DB.all('armoires'); } catch (e) { arms = state.armoires || []; }
+  arms = arms.filter(memeChantier);
   if (arms.length) {
     const acols = ['id', 'etatExt', 'etatInt', 'abonnement', 'cable', 'departs', 'protection', 'horloge', 'observations', 'lat', 'lng', 'photos', 'chantier', 'technicien', 'date'];
     const alines = arms.map((r) => acols.map((c) => {
@@ -1704,13 +1715,10 @@ async function exportAll() {
       return csvCell(v);
     }).join(';'));
     const acsv = '\uFEFF' + acols.join(';') + '\n' + alines.join('\n');
-    const ab = document.createElement('a');
-    ab.href = URL.createObjectURL(new Blob([acsv], { type: 'text/csv;charset=utf-8' }));
-    ab.download = 'audit_armoires_' + (state.chantier || 'export').replace(/\W+/g, '_') + '_' + new Date().toISOString().slice(0, 10) + '.csv';
-    ab.click();
-    setTimeout(() => URL.revokeObjectURL(ab.href), 4000);
+    // délai de 900 ms : évite que le navigateur (iOS surtout) bloque le 2e téléchargement
+    setTimeout(() => _telecharger(acsv, 'audit_armoires_' + suffixe), 900);
   }
-  showToast(points.length + ' points' + (arms.length ? ' + ' + arms.length + ' armoires' : '') + ' exportés', 'success');
+  showToast(points.length + ' points' + (arms.length ? ' + ' + arms.length + ' armoires (2 fichiers)' : '') + ' exportés', 'success');
 }
 
 /* ---- Export ZIP des photos (store-only, sans dépendance, fonctionne hors réseau) ---- */
