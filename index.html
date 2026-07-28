@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v82</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v83</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -4170,6 +4170,26 @@ function renderTemplatesBar() {
   bar.innerHTML = html;
 }
 function _normVal(x){ return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
+// Valeurs à colorier pour le champ de couleur courant.
+// Champ à liste → ses options ; champ texte/trames → les valeurs réellement présentes sur les points.
+function colorValuesFor(field){
+  field = field || CONFIG.colorField;
+  if (String(field).indexOf('custom:') === 0) {
+    const col = field.slice(7);
+    const cf = (CONFIG.customFields || []).concat(CONFIG.armCustomFields || []).find(c => c.column === col);
+    if (cf && (cf.type === 'select' || cf.type === 'multi') && cf.options && cf.options.length) return cf.options.slice();
+    // texte / trames / sans options → on collecte les valeurs vues
+    const vues = new Set();
+    (state.points || []).forEach(p => { const v = p.custom && p.custom[col]; if (v != null && String(v).trim() !== '') vues.add(String(v).trim()); });
+    (state.armoires || []).forEach(a => { const v = a.custom && a.custom[col]; if (v != null && String(v).trim() !== '') vues.add(String(v).trim()); });
+    return [...vues].sort((a,b)=>a.localeCompare(b,'fr'));
+  }
+  if ((CONFIG.lists[field] || []).length) return CONFIG.lists[field].slice();
+  // champ standard sans liste → valeurs vues
+  const vues = new Set();
+  (state.points || []).forEach(p => { const v = p[field]; if (v != null && String(v).trim() !== '') vues.add(String(v).trim()); });
+  return [...vues].sort((a,b)=>a.localeCompare(b,'fr'));
+}
 function setFieldValueSmart(el, v){
   if (!el) return;
   if (el.tagName === 'SELECT') {
@@ -4771,10 +4791,15 @@ function renderSettings() {
     if (!colorChoices.some(f => f.key === k) && (CONFIG.lists[k] || []).length)
       colorChoices.push({ key: k, label: k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()) });
   });
-  // + tous les champs personnalisés (liste ou choix multiples)
+  // + TOUS les champs personnalisés des points (quel que soit leur type : texte, liste, multi, trames)
   (CONFIG.customFields || []).forEach(cf => {
-    if (cf.type === 'select' || cf.type === 'multi')
+    if (!colorChoices.some(f => f.key === 'custom:' + cf.column))
       colorChoices.push({ key: 'custom:' + cf.column, label: cf.label, custom: true, column: cf.column });
+  });
+  // + les champs personnalisés d'ARMOIRE (utile si tu colores selon une caractéristique d'armoire)
+  (CONFIG.armCustomFields || []).forEach(cf => {
+    if (!colorChoices.some(f => f.key === 'custom:' + cf.column))
+      colorChoices.push({ key: 'custom:' + cf.column, label: cf.label + ' (armoire)', custom: true, column: cf.column });
   });
   window._colorChoices = colorChoices;
   html += '<div class="set-color-row"><span class="set-color-label">Couleur déclenchée par</span>' +
@@ -4783,12 +4808,8 @@ function renderSettings() {
     '</select></div>';
   const colorFieldDef = colorChoices.find(f => f.key === CONFIG.colorField) || colorChoices[0];
   html += `<div class="set-empty" style="margin:6px 0 10px">Selon « ${escapeHtml(colorFieldDef.label)} » de chaque point — intérieur et contour réglables séparément.</div>`;
-  let _colorVals;
-  if (String(CONFIG.colorField).indexOf('custom:') === 0) {
-    const col = CONFIG.colorField.slice(7);
-    const cf = (CONFIG.customFields || []).find(c => c.column === col);
-    _colorVals = (cf && cf.options) || [];
-  } else { _colorVals = CONFIG.lists[CONFIG.colorField] || []; }
+  let _colorVals = colorValuesFor(CONFIG.colorField);
+  if (!_colorVals.length) html += '<div class="set-empty">Aucune valeur à colorer pour ce champ (renseignez-en dans des fiches, puis rouvrez).</div>';
   _colorVals.forEach((val, i) => {
     const c = (CONFIG.colors && CONFIG.colors[val]) || (CONFIG.colors && CONFIG.colors._default) || { fill: '#38bdf8', border: '#ffffff' };
     html += `<div class="set-color-row">
@@ -4967,12 +4988,7 @@ function setStateColor(etat, color, channel) {
   renderPanier();
 }
 function setStateColorByIndex(i, color, channel) {
-  let _cv;
-  if (String(CONFIG.colorField).indexOf('custom:') === 0) {
-    const col = CONFIG.colorField.slice(7);
-    const cf = (CONFIG.customFields || []).find(c => c.column === col);
-    _cv = (cf && cf.options) || [];
-  } else { _cv = CONFIG.lists[CONFIG.colorField] || []; }
+  const _cv = colorValuesFor(CONFIG.colorField);
   const val = _cv[i];
   if (val) setStateColor(val, color, channel);
 }
