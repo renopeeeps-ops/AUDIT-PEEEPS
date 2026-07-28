@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v76</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v77</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -3698,6 +3698,11 @@ function applyConfig() {
 function renderCustomFields() {
   const box = document.getElementById('custom-fields-pl');
   if (!box) return;
+  (CONFIG.customFields || []).forEach(cf => {
+    document.querySelectorAll('#screen-form #cf-' + CSS.escape(cf.key)).forEach(el => {
+      const row = el.closest('.form-row'); if (row && !box.contains(row)) row.remove();
+    });
+  });
   box.innerHTML = (CONFIG.customFields || []).map(cf => {
     const id = 'cf-' + cf.key;
     const col = escapeHtml(cf.column);
@@ -3730,6 +3735,12 @@ function readCustomFields() {
 function renderArmCustomFields() {
   const box = document.getElementById('custom-fields-arm');
   if (!box) return;
+  // Anti-doublon : retirer d'éventuels champs perso déplacés hors du conteneur lors d'une réorganisation.
+  (CONFIG.armCustomFields || []).forEach(cf => {
+    document.querySelectorAll('#screen-armoire-form #acf-' + CSS.escape(cf.key)).forEach(el => {
+      const row = el.closest('.form-row'); if (row && !box.contains(row)) row.remove();
+    });
+  });
   box.innerHTML = (CONFIG.armCustomFields || []).map(cf => {
     const id = 'acf-' + cf.key;
     const col = escapeHtml(cf.column);
@@ -3761,9 +3772,11 @@ function readArmCustomFields() {
 // ── Helpers champs à choix multiples (puces) ──
 function toggleChip(el) { el.classList.toggle('on'); }
 function readFieldEl(el) {
+  if (!el) return '';
   if (el.classList.contains('multi-chips'))
     return [...el.querySelectorAll('.mchip.on')].map(c => c.dataset.v).join(', ');
-  return el.value;
+  if (el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return el.value;
+  return el.textContent || '';
 }
 function setFieldEl(el, val) {
   if (el.classList.contains('multi-chips')) {
