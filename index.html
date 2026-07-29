@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v84</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v85</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -2011,6 +2011,7 @@ async function doLogin() {
   await loadLocal();
   await loadLocalArmoires();
   await loadConfig();
+  await restoreTemplatesLocal();     // trames dispo hors-ligne dès l'ouverture
   document.getElementById('map-chantier-label').textContent = chantier;
   document.getElementById('map-technicien-label').textContent = state.technicien;
   document.getElementById('bottom-nav').style.display = 'flex';
@@ -4110,8 +4111,20 @@ function _findHeaderKey(row, names){
   for (const nm of names){ const k = idx[_normHead(nm)]; if (k!==undefined) return k; }
   return null;
 }
+// Recharge les trames depuis le stockage local (hors-ligne ou avant la 1re synchro).
+async function restoreTemplatesLocal(){
+  if (SHEET_TEMPLATES.length) return;
+  try {
+    const rec = await DB.get('meta', 'templates');
+    if (rec && Array.isArray(rec.v) && rec.v.length) {
+      SHEET_TEMPLATES = rec.v;
+      if (typeof renderTemplatesBar === 'function') renderTemplatesBar();
+      if (typeof renderCustomFields === 'function') renderCustomFields();
+    }
+  } catch (e) {}
+}
 async function loadTemplatesFromSheets(silent){
-  if (!navigator.onLine) return;
+  if (!navigator.onLine) { await restoreTemplatesLocal(); return; }
   try {
     const res = await fetch(SCRIPT_URL + '?sheet=Trames');   // pas de filtre chantier : trames globales
     const data = await res.json();
@@ -4145,6 +4158,8 @@ async function loadTemplatesFromSheets(silent){
                  values, custom });
     });
     SHEET_TEMPLATES = out;
+    // Sauvegarde locale des trames → disponibles hors-ligne au prochain démarrage.
+    try { await DB.put('meta', { k: 'templates', v: SHEET_TEMPLATES }); } catch (e) {}
     // Filet de sécurité : si les trames arrivent après les points, on complète les fiches
     // concernées par une « Catégorie » (uniquement leurs champs restés vides).
     let _recat = 0;
