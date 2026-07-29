@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v86</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v87</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -2825,6 +2825,11 @@ function refreshMapMarkers() {
     }
     marker._ptId = pt.id;
     marker.bindPopup(() => popupPointHTML(marker._ptId), { maxWidth: 260 });
+    // Clic explicite : garantit l'ouverture du popup même pour les CircleMarker (canvas) dans un cluster.
+    marker.on('click', function(ev){
+      if (ev && ev.originalEvent) L.DomEvent.stopPropagation(ev);
+      this.openPopup();
+    });
     markersById.set(pt.id, marker);
     ptMarkers.push(marker);
   });
