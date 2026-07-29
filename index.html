@@ -426,8 +426,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .prog-track{height:7px;background:rgba(255,255,255,.12);border-radius:4px;overflow:hidden}
 .prog-fill{height:100%;border-radius:4px;transition:width .3s}
 .prog-lbl{font-size:11px;color:var(--text2);margin-top:3px;text-align:right}
-#map-progress{position:absolute;top:calc(env(safe-area-inset-top) + 60px);left:10px;right:80px;z-index:900;background:rgba(15,23,42,.92);backdrop-filter:blur(6px);border:1px solid var(--border2);border-radius:10px;padding:8px 12px;display:none}
-#map-progress.show{display:block}
+#map-progress{position:absolute;left:8px;top:50%;transform:translateY(-50%);z-index:900;display:none;flex-direction:column;align-items:center;gap:6px;background:rgba(15,23,42,.9);backdrop-filter:blur(6px);border:1px solid var(--border2);border-radius:12px;padding:8px 6px}
+#map-progress.show{display:flex}
+#map-progress .mp-track{position:relative;width:8px;height:120px;background:rgba(255,255,255,.12);border-radius:5px;overflow:hidden}
+#map-progress .mp-fill{position:absolute;left:0;right:0;bottom:0;border-radius:5px;transition:height .3s}
+#map-progress .mp-pct{font-family:var(--font-mono);font-size:11px;font-weight:700}
+#map-progress .mp-num{font-size:9px;color:var(--text2);writing-mode:vertical-rl;transform:rotate(180deg);max-height:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .armoire-item {
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -1164,7 +1168,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v89</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v92</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -2788,9 +2792,10 @@ function updateMapProgress() {
   if (!total) { box.classList.remove('show'); return; }
   const pct = Math.round(faits / total * 100);
   const col = pct === 100 ? '#4ade80' : pct >= 50 ? '#38bdf8' : '#fbbf24';
-  box.innerHTML = `<div style="font-size:11px;color:var(--text2);margin-bottom:4px">${escapeHtml(titre)}</div>
-    <div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${col}"></div></div>
-    <div class="prog-lbl">${faits}/${total} vérifiés · ${pct}%</div>`;
+  box.innerHTML = `<div class="mp-pct" style="color:${col}">${pct}%</div>
+    <div class="mp-track"><div class="mp-fill" style="height:${pct}%;background:${col}"></div></div>
+    <div class="mp-num">${faits}/${total} vérif.</div>`;
+  box.title = titre + ' — ' + faits + '/' + total + ' vérifiés (' + pct + '%)';
   box.classList.add('show');
 }
 function toggleArmoireInFilter(id) {
@@ -2856,6 +2861,8 @@ function refreshMapMarkers() {
   setTimeout(updateMapProgress, 0);
   markersLayer.clearLayers();
   if (pointsCluster) pointsCluster.clearLayers();
+  // retirer les points ronds posés directement sur la carte au refresh précédent
+  markersById.forEach(m => { if (m && !m._isStar && map.hasLayer(m)) map.removeLayer(m); });
   markersById.clear();
   armoireMarkersById.clear();
   populateArmoireFilter();
@@ -2873,8 +2880,8 @@ function refreshMapMarkers() {
       marker = L.circleMarker([pt.lat, pt.lng], { renderer: _canvasRenderer, radius: 7, color: color.border, weight: 2, fillColor: color.fill, fillOpacity: 1 });
     }
     marker._ptId = pt.id;
+    marker._isStar = isSolarPoint(pt);
     marker.bindPopup(() => popupPointHTML(marker._ptId), { maxWidth: 260 });
-    // Clic explicite : garantit l'ouverture du popup même pour les CircleMarker (canvas) dans un cluster.
     marker.on('click', function(ev){
       if (ev && ev.originalEvent) L.DomEvent.stopPropagation(ev);
       this.openPopup();
@@ -2882,10 +2889,16 @@ function refreshMapMarkers() {
     markersById.set(pt.id, marker);
     ptMarkers.push(marker);
   });
-  // Ajout groupé (bien plus rapide que un par un avec des milliers de points)
-  if (pointsCluster) {
-    if (pointsCluster.addLayers) pointsCluster.addLayers(ptMarkers);
-    else ptMarkers.forEach(m => pointsCluster.addLayer(m));
+  // Points RONDS (CircleMarker/canvas) → posés DIRECTEMENT sur la carte : clic 100% fiable + très léger.
+  // Étoiles (solaires) → dans le cluster si disponible.
+  const ronds = ptMarkers.filter(m => !m._isStar);
+  const etoiles = ptMarkers.filter(m => m._isStar);
+  ronds.forEach(m => m.addTo(map));
+  if (pointsCluster && etoiles.length) {
+    if (pointsCluster.addLayers) pointsCluster.addLayers(etoiles);
+    else etoiles.forEach(m => pointsCluster.addLayer(m));
+  } else {
+    etoiles.forEach(m => m.addTo(map));
   }
   // Marqueurs armoires (carré orange avec éclair)
   state.armoires.forEach(arm => {
@@ -5240,14 +5253,36 @@ async function masseSetVerifie(val) {
   const cibles = state.points.filter(p => p.dansPanier);
   if (!cibles.length) { showToast('Aucun point sélectionné', 'error'); return; }
   const entries = cibles.map(p => ({ id: p.id, before: cloneEntry(p) }));
+  // 1) marquage LOCAL instantané
   cibles.forEach(p => { p.verifie = val; });
   saveLocal();
   pushUndo({ type: 'masse', entries });
-  refreshMapMarkers();               // met à jour la barre de progression de la carte
+  refreshMapMarkers();               // la barre de progression se met à jour tout de suite
   if (currentScreen === 'armoires') renderArmoires();
-  showToast(cibles.length + ' point(s) ' + (val ? 'marqués vérifiés ✓ — sync…' : 'remis à non vérifié — sync…'), 'success');
-  // envoi au Sheet (syncPointToSheets gère la file hors-ligne tout seul)
-  for (const p of cibles) { try { await syncPointToSheets(p); } catch (e) {} }
+
+  // 2) envoi au Sheet en UN SEUL appel groupé (action 'masse') — pas 900 requêtes.
+  const ids = cibles.map(p => p.id);
+  if (!navigator.onLine) {
+    showToast(cibles.length + ' point(s) ' + (val ? 'vérifiés ✓' : 'remis à non vérifié') + ' — seront synchronisés au réseau', 'success');
+    // repli hors-ligne : on met chaque point dans la file classique
+    for (const p of cibles) { try { await DB.put('queue', { id: p.id, pt: p, ts: Date.now() }); } catch (e) {} }
+    return;
+  }
+  showToast(cibles.length + ' point(s) — envoi groupé au Sheet…', '');
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'masse', sheet: 'Points Lumineux', ids: ids, updates: { 'Vérifié': val ? 'OUI' : '' } })
+    });
+    const result = await res.json();
+    if (result.error) throw new Error(result.error);
+    showToast(cibles.length + ' point(s) ' + (val ? 'vérifiés ✓ (Sheet à jour)' : 'remis à non vérifié'), 'success');
+  } catch (e) {
+    // échec réseau : repli sur la file classique, ré-essayée automatiquement
+    for (const p of cibles) { try { await DB.put('queue', { id: p.id, pt: p, ts: Date.now() }); } catch (er) {} }
+    showToast('Marqué localement ✓ — synchronisation différée', '');
+  }
 }
 
 // Retire tous les points du lasso (désélectionne) sans les supprimer
