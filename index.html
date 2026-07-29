@@ -1149,7 +1149,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v85</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v86</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -4653,10 +4653,21 @@ function toggleSection(el) {
   renderSettings();
 }
 function renderSettings() {
+  const _offline_section = `
+    <div class="set-section-title">🛰️ Mode hors-ligne — préparation terrain</div>
+    <div class="set-card">
+      <div class="set-empty" style="margin-bottom:10px">Vérifiez que tout est prêt <b>avant</b> de partir en zone sans réseau. Faites-le en wifi.</div>
+      <div id="offline-check"></div>
+      <div class="set-add" style="margin-top:10px;flex-wrap:wrap;gap:6px">
+        <button class="set-btn" onclick="checkOfflineReady()">🔄 Vérifier</button>
+        <button class="set-btn" style="background:var(--accent);color:#04121f;font-weight:700" onclick="prepareOfflineAll()">⬇️ Tout préparer pour le terrain</button>
+      </div>
+    </div>`;
+
   setTimeout(() => { try { refreshTilesInfo(); } catch(e){} }, 60);
   const box = document.getElementById('settings-body');
   if (!box) return;
-  let html = '<div class="set-section-title">Listes de choix</div>';
+  let html = _offline_section + '<div class="set-section-title">Listes de choix</div>';
   LIST_FIELDS.forEach(f => {
     const chips = (CONFIG.lists[f.key] || []).map((o, i) =>
       `<span class="set-chip">${escapeHtml(o)}<span class="set-chip-x" onclick="removeOption('${f.key}',${i})">×</span></span>`
@@ -4913,6 +4924,52 @@ function renderSettings() {
   });
   box.innerHTML = out;
   setTimeout(initOrderDrag, 30);
+  setTimeout(checkOfflineReady, 60);
+}
+
+/* ═══ MODE HORS-LIGNE : tableau de bord de préparation terrain ═══ */
+async function checkOfflineReady() {
+  const box = document.getElementById('offline-check');
+  if (!box) return;
+  const ligne = (ok, titre, detail) =>
+    `<div class="set-color-row">
+       <span class="set-color-label">${ok ? '✅' : '⚠️'} ${titre}</span>
+       <span style="font-weight:600;color:${ok ? '#4ade80' : '#fbbf24'}">${detail}</span>
+     </div>`;
+  let pts = 0, arms = 0, tuiles = 0, trames = SHEET_TEMPLATES.length, queue = 0;
+  try { pts = await DB.count('points'); } catch (e) {}
+  try { arms = await DB.count('armoires'); } catch (e) {}
+  try { const c = await caches.open('audit-ep-tiles-v1'); tuiles = (await c.keys()).length; } catch (e) {}
+  try { queue = await DB.count('queue'); } catch (e) {}
+  // état de l'appli en cache (shell installé)
+  let shell = false;
+  try { const keys = await caches.keys(); shell = keys.some(k => k.indexOf('audit-ep-shell') === 0); } catch (e) {}
+
+  box.innerHTML =
+    ligne(shell, 'Application installée hors-ligne', shell ? 'prête' : 'ouvrez en wifi') +
+    ligne(pts > 0, 'Points du chantier', pts + ' pts') +
+    ligne(arms > 0, 'Armoires', arms + ' arm.') +
+    ligne(trames > 0, 'Trames (catégories)', trames + ' trames') +
+    ligne(tuiles > 50, 'Fond de carte', tuiles + ' tuiles' + (tuiles <= 50 ? ' — à précharger' : '')) +
+    ligne(true, 'À synchroniser', queue === 0 ? 'rien en attente' : queue + ' en attente');
+
+  const pret = shell && pts > 0 && trames > 0 && tuiles > 50;
+  const t = document.querySelector('#offline-check');
+  if (t) t.insertAdjacentHTML('afterbegin',
+    `<div style="text-align:center;font-weight:700;margin-bottom:8px;color:${pret ? '#4ade80' : '#fbbf24'}">
+       ${pret ? '✓ Prêt pour le terrain' : '⚠️ Préparation incomplète'}
+     </div>`);
+}
+
+// Tout préparer d'un coup : rafraîchit les données du serveur + les trames + précharge la carte visible.
+async function prepareOfflineAll() {
+  if (!navigator.onLine) { showToast('Connectez-vous au wifi pour préparer le hors-ligne', 'error'); return; }
+  showToast('Préparation en cours…', '');
+  try { await loadFromSheets(true); } catch (e) {}          // points + armoires + config
+  try { await loadTemplatesFromSheets(true); } catch (e) {} // trames (et sauvegarde locale)
+  showToast('Données à jour ✓ — préchargez la carte de vos zones depuis l\'onglet Carte', 'success');
+  // amène l'utilisateur à précharger la carte (l'action tuiles se fait sur la vue carte)
+  await checkOfflineReady();
 }
 function addOption(key) {
   const inp = document.getElementById('addopt-' + key);
