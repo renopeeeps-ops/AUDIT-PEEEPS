@@ -420,6 +420,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 /* ── Armoires ── */
 #screen-armoires { padding-bottom: var(--bottom-nav); overflow: hidden; }
 #screen-armoire-form { overflow: hidden; }
+.armoire-card{margin-bottom:8px}
+.prog-wrap{padding:6px 12px 10px}
+.prog-compact{padding:4px 0 0}
+.prog-track{height:7px;background:rgba(255,255,255,.12);border-radius:4px;overflow:hidden}
+.prog-fill{height:100%;border-radius:4px;transition:width .3s}
+.prog-lbl{font-size:11px;color:var(--text2);margin-top:3px;text-align:right}
+#map-progress{position:absolute;top:calc(env(safe-area-inset-top) + 60px);left:10px;right:80px;z-index:900;background:rgba(15,23,42,.92);backdrop-filter:blur(6px);border:1px solid var(--border2);border-radius:10px;padding:8px 12px;display:none}
+#map-progress.show{display:block}
 .armoire-item {
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -864,6 +872,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   </div>
   <div id="map"></div>
   <button class="map-filter" id="map-filter-btn" onclick="toggleFilterPanel()">Toutes les armoires</button>
+  <div id="map-progress"></div>
   <button class="map-filter" id="map-champ-btn" onclick="toggleChampPanel()" style="top:calc(env(safe-area-inset-top) + 108px)">Filtre caractéristique</button>
   <div id="map-champ-panel">
     <div class="mfp-head">
@@ -1106,6 +1115,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
     </div>
     <div class="form-row">
       <div class="toggle-row">
+        <span class="toggle-label">✅ Vérifié sur le terrain</span>
+        <div class="toggle" id="toggle-verifie" onclick="this.classList.toggle('on')"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="toggle-row">
         <span class="toggle-label">Point à déposer</span>
         <div class="toggle" id="toggle-depose" onclick="this.classList.toggle('on')"></div>
       </div>
@@ -1149,7 +1164,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v87</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v89</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -1340,6 +1355,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
     <div class="modal-title">Modifier en masse</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:4px"><span id="masse-choice-count">0</span> point(s) sélectionné(s). Que voulez-vous modifier ?</div>
     <div class="modal-actions">
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();masseSetVerifie(true)" style="background:rgba(74,222,128,0.15);color:#4ade80;border-color:#4ade80">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg>
+        ✅ Marquer « vérifié sur le terrain »
+      </button>
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();masseSetVerifie(false)" style="background:rgba(148,163,184,0.12);color:#94a3b8;border-color:#94a3b8">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        Retirer « vérifié »
+      </button>
       <button class="btn-modal-action" onclick="closeModalMasseChoice();openModalMasse()" style="background:var(--accent-dim);color:var(--accent);border-color:var(--accent)">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8h10M8 3v10"/></svg>
         Une seule caractéristique
@@ -2745,6 +2768,31 @@ function toggleAllArmoiresFilter() {
   renderFilterPanel();
   zoomToArmoireFilter();
 }
+function updateMapProgress() {
+  const box = document.getElementById('map-progress');
+  if (!box) return;
+  const ids = (state.filterArmoire && state.filterArmoire.length)
+    ? state.filterArmoire.slice()
+    : null;   // null = tout le chantier
+  let total = 0, faits = 0, titre = '';
+  if (ids) {
+    ids.forEach(id => { const pr = armoireProgress(id); total += pr.total; faits += pr.faits; });
+    titre = ids.length === 1 ? ('Armoire ' + ids[0]) : (ids.length + ' armoires');
+  } else {
+    (state.points || []).forEach(p => {
+      if (state.chantier && String(p.chantier || '') !== String(state.chantier)) return;
+      total++; if (p.verifie) faits++;
+    });
+    titre = 'Chantier ' + (state.chantier || '');
+  }
+  if (!total) { box.classList.remove('show'); return; }
+  const pct = Math.round(faits / total * 100);
+  const col = pct === 100 ? '#4ade80' : pct >= 50 ? '#38bdf8' : '#fbbf24';
+  box.innerHTML = `<div style="font-size:11px;color:var(--text2);margin-bottom:4px">${escapeHtml(titre)}</div>
+    <div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${col}"></div></div>
+    <div class="prog-lbl">${faits}/${total} vérifiés · ${pct}%</div>`;
+  box.classList.add('show');
+}
 function toggleArmoireInFilter(id) {
   const arr = state.filterArmoire || (state.filterArmoire = []);
   const i = arr.indexOf(id);
@@ -2805,6 +2853,7 @@ function refreshMapMarkers() {
   if (currentScreen !== 'map') { mapDirty = true; return; }   // reconstruit au retour sur la carte
   mapDirty = false;
   if (!markersLayer) return;
+  setTimeout(updateMapProgress, 0);
   markersLayer.clearLayers();
   if (pointsCluster) pointsCluster.clearLayers();
   markersById.clear();
@@ -3098,6 +3147,7 @@ function showForm(pt) {
   document.getElementById('f-observations').value = pt ? (pt.observations || '') : '';
   populateIdArmoireSelect(pt ? (pt.idArmoire || '') : '');
   document.getElementById('toggle-depose').classList.toggle('on', !!(pt && pt.aDeposer));
+  document.getElementById('toggle-verifie').classList.toggle('on', !!(pt && pt.verifie));
   document.getElementById('f-classe-precision').value = pt ? (pt.classePrecision || 'C') : 'C';
   renderCustomFields();
   applyFieldOrder();          // les champs perso viennent d'être recréés → on replace tout
@@ -3231,6 +3281,7 @@ function getFormData() {
     observations: document.getElementById('f-observations').value,
     dansPanier: state.panierInForm,
     aDeposer: document.getElementById('toggle-depose').classList.contains('on'),
+    verifie: document.getElementById('toggle-verifie').classList.contains('on'),
     custom: readCustomFields(),
     photos
   };
@@ -3330,6 +3381,25 @@ function generateArmoireId() {
   return 'ARM-' + Date.now().toString(36).toUpperCase().slice(-4);
 }
 
+// Progression de vérification d'une armoire : { total, faits, pct }
+function armoireProgress(armId) {
+  const id = String(armId).trim();
+  let total = 0, faits = 0;
+  (state.points || []).forEach(p => {
+    if (String(p.idArmoire || '').trim() !== id) return;
+    if (state.chantier && String(p.chantier || '') !== String(state.chantier)) return;
+    total++;
+    if (p.verifie) faits++;
+  });
+  return { total, faits, pct: total ? Math.round(faits / total * 100) : 0 };
+}
+function progressBarHTML(pr, compact) {
+  const col = pr.pct === 100 ? '#4ade80' : pr.pct >= 50 ? '#38bdf8' : '#fbbf24';
+  return `<div class="prog-wrap${compact ? ' prog-compact' : ''}">
+    <div class="prog-track"><div class="prog-fill" style="width:${pr.pct}%;background:${col}"></div></div>
+    <div class="prog-lbl">${pr.faits}/${pr.total} vérifiés · ${pr.pct}%</div>
+  </div>`;
+}
 function renderArmoires() {
   const scroll = document.getElementById('armoires-scroll');
   const sub = document.getElementById('armoires-sub');
@@ -3355,7 +3425,8 @@ function renderArmoires() {
   scroll.innerHTML = source.map(arm => {
     const nbPts = state.points.filter(p => String(p.idArmoire || '').trim() === String(arm.id).trim()).length;
     const etatColor = arm.etatExt === 'Bon' ? '#4ade80' : arm.etatExt === 'Moyen' ? '#facc15' : arm.etatExt ? '#f87171' : '#64748b';
-    return `<div class="armoire-item" onclick="showArmoireForm(state.armoires.find(a=>a.id==='${arm.id}'))">
+    return `<div class="armoire-card">
+      <div class="armoire-item" onclick="showArmoireForm(state.armoires.find(a=>a.id==='${arm.id}'))">
       <div class="armoire-icon">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/><path d="M12 14h.01M12 17h.01"/></svg>
       </div>
@@ -3369,6 +3440,8 @@ function renderArmoires() {
       </div>
       <div class="armoire-item-badge">${nbPts} pts</div>
       <button class="armoire-del" onclick="event.stopPropagation();deleteArmoireFromList('${arm.id}')" title="Supprimer l'armoire">🗑</button>
+      </div>
+      ${progressBarHTML(armoireProgress(arm.id))}
     </div>`;
   }).join('');
 }
@@ -3926,6 +3999,7 @@ const ARM_ORDER_DEFS = [
 // Défs complètes = champs standard (dont ceux qui manquaient) + un item par champ personnalisé
 function plOrderDefs() {
   const base = PL_ORDER_DEFS.filter(d => d.key !== 'custom' && d.el !== 'custom-fields-pl').slice();
+  base.push({ key:'verifie', label:'Vérifié sur le terrain', el:'toggle-verifie' });
   base.push({ key:'depose', label:'Point à déposer', el:'toggle-depose' });
   (CONFIG.customFields || []).forEach(cf =>
     base.push({ key:'cf:' + cf.key, label:cf.label + ' (perso)', el:'cf-' + cf.key }));
@@ -5161,6 +5235,21 @@ function closeModalMasseChoice(e) {
     document.getElementById('modal-masse-choice').classList.remove('open');
 }
 
+// Marque (ou retire) « vérifié sur le terrain » pour tous les points sélectionnés au lasso.
+async function masseSetVerifie(val) {
+  const cibles = state.points.filter(p => p.dansPanier);
+  if (!cibles.length) { showToast('Aucun point sélectionné', 'error'); return; }
+  const entries = cibles.map(p => ({ id: p.id, before: cloneEntry(p) }));
+  cibles.forEach(p => { p.verifie = val; });
+  saveLocal();
+  pushUndo({ type: 'masse', entries });
+  refreshMapMarkers();               // met à jour la barre de progression de la carte
+  if (currentScreen === 'armoires') renderArmoires();
+  showToast(cibles.length + ' point(s) ' + (val ? 'marqués vérifiés ✓ — sync…' : 'remis à non vérifié — sync…'), 'success');
+  // envoi au Sheet (syncPointToSheets gère la file hors-ligne tout seul)
+  for (const p of cibles) { try { await syncPointToSheets(p); } catch (e) {} }
+}
+
 // Retire tous les points du lasso (désélectionne) sans les supprimer
 function deselectLasso() {
   const count = state.points.filter(p => p.dansPanier).length;
@@ -5526,6 +5615,7 @@ function mapServerRow(r) {
     lat: parseFloat(r['Latitude']) || null,
     dansPanier: r['Dans le Panier'] === 'TRUE' || r['Dans le Panier'] === true,
     aDeposer: String(colVal(r, 'À déposer') || '').toUpperCase() === 'OUI',
+    verifie: String(colVal(r, 'Vérifié') || '').toUpperCase() === 'OUI',
     observations: colVal(r, 'Observations') || '',
     _categorieSheet: String(colVal(r, 'Catégorie') || '').trim(),
     chantier: r['Chantier'] || '',
@@ -5728,6 +5818,7 @@ async function syncPointToSheets(pt) {
         'Photos': PHOTO_TYPES.filter(t => pt.photos && pt.photos[t]).join(','),
         'Dans le Panier': pt.dansPanier ? 'TRUE' : 'FALSE',
         'À déposer': pt.aDeposer ? 'OUI' : '',
+        'Vérifié': pt.verifie ? 'OUI' : '',
         'Observations': pt.observations || '',
         'Chantier': pt.chantier,
         'Technicien': pt.technicien,
