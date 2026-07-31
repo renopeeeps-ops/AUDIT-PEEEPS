@@ -26,8 +26,8 @@
   --text: #f1f5f9;
   --text2: #94a3b8;
   --text3: #64748b;
-  --accent: #38bdf8;
-  --accent-dim: rgba(56,189,248,0.15);
+  --accent: #e2e8f0;
+  --accent-dim: rgba(226,232,240,0.15);
   --green: #4ade80;
   --green-dim: rgba(74,222,128,0.15);
   --orange: #fb923c;
@@ -724,7 +724,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #calib-img{display:block;max-width:none;cursor:crosshair}
 .calib-pin{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.6);pointer-events:none}
 .calib-pin.p1{background:#4ade80}.calib-pin.p2{background:#fb923c}
-.calib-mapbanner{position:absolute;top:calc(env(safe-area-inset-top) + 110px);left:50%;transform:translateX(-50%);z-index:900;background:#0ea5e9;color:#04222e;font-weight:700;font-size:13px;padding:10px 16px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.4);display:none;white-space:nowrap}
+.calib-mapbanner{position:absolute;top:calc(env(safe-area-inset-top) + 110px);left:50%;transform:translateX(-50%);z-index:900;background:#cbd5e1;color:#04222e;font-weight:700;font-size:13px;padding:10px 16px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.4);display:none;white-space:nowrap}
 .calib-mapbanner.show{display:block}
 #overlay-bar{position:absolute;bottom:calc(var(--bottom-nav) + 12px);left:10px;z-index:820;background:rgba(15,23,42,.92);backdrop-filter:blur(8px);border:1px solid var(--border2);border-radius:12px;padding:8px 12px;display:none;align-items:center;gap:10px}
 #overlay-bar.show{display:flex}
@@ -819,9 +819,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   <div class="login-logo">
     <div class="logo-icon">
       <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-        <circle cx="14" cy="14" r="5" fill="#38bdf8"/>
-        <circle cx="14" cy="14" r="10" stroke="#38bdf8" stroke-width="1.5" opacity="0.4"/>
-        <circle cx="14" cy="14" r="13" stroke="#38bdf8" stroke-width="1" opacity="0.2"/>
+        <circle cx="14" cy="14" r="5" fill="#e2e8f0"/>
+        <circle cx="14" cy="14" r="10" stroke="#e2e8f0" stroke-width="1.5" opacity="0.4"/>
+        <circle cx="14" cy="14" r="13" stroke="#e2e8f0" stroke-width="1" opacity="0.2"/>
       </svg>
     </div>
     <h1>Audit EP</h1>
@@ -937,7 +937,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round"><path d="M12 4v16M4 12h16"/></svg>
   </div>
   <div class="map-precache" onclick="precacheVisibleArea()" title="Précharger la carte de la zone affichée (en réseau, avant le terrain)">
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12V2M5 8l4 4 4-4M2 12v3a1 1 0 001 1h12a1 1 0 001-1v-3"/></svg>
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#e2e8f0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12V2M5 8l4 4 4-4M2 12v3a1 1 0 001 1h12a1 1 0 001-1v-3"/></svg>
   </div>
   <div class="lasso-hint" id="lasso-hint">Lasso actif — entourez les points au doigt</div>
   <div class="movegroup-hint" id="movegroup-hint">Glissez sur la carte pour déplacer <span id="movegroup-hint-count">0</span> point(s)<span class="movegroup-cancel" onclick="cancelMoveGroup()">Annuler</span></div>
@@ -1168,7 +1168,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="screen" id="screen-settings">
   <div class="settings-head">
     <div class="settings-title">Réglages</div>
-    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v93</b></div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v94</b></div>
   </div>
   <div class="settings-body" id="settings-body"></div>
 </div>
@@ -2226,7 +2226,7 @@ function lassoDown(ev) {
   lassoActive = true;
   lassoPts = [_evLatLng(ev)];
   if (lassoLine) map.removeLayer(lassoLine);
-  lassoLine = L.polyline(lassoPts, { color: '#38bdf8', weight: 3, dashArray: '6 5' }).addTo(map);
+  lassoLine = L.polyline(lassoPts, { color: '#e2e8f0', weight: 3, dashArray: '6 5' }).addTo(map);
 }
 function lassoMoveHandler(ev) {
   if (!lassoMode || !lassoActive) return;
@@ -2260,6 +2260,9 @@ function finishLasso() {
   if (poly.length < 3) { showToast('Tracé trop court', 'error'); return; }
   const inside = state.points.filter(p => p.lat != null && p.lng != null
     && (!state.chantier || String(p.chantier || '') === String(state.chantier))
+    // ne prendre que les points RÉELLEMENT AFFICHÉS (mêmes filtres que la carte)
+    && (!state.filterArmoire.length || state.filterArmoire.includes(String(p.idArmoire)))
+    && champFilterOK(p)
     && pointInPoly(p.lat, p.lng, poly));
   if (!inside.length) { showToast('Aucun point dans la zone', ''); return; }
   // Bascule point par point : ceux hors panier entrent, ceux déjà dedans sortent.
@@ -2630,7 +2633,7 @@ function markerShapeHTML(pt, color){
 }
 function getMarkerColor(pt) {
   const colors = (CONFIG && CONFIG.colors) || {};
-  const dfl = colors._default || { fill: '#38bdf8', border: '#ffffff' };
+  const dfl = colors._default || { fill: '#e2e8f0', border: '#ffffff' };
   if (pt.dansPanier) return { fill: '#fb923c', border: '#ffffff' };
   const field = (CONFIG && CONFIG.colorField) || 'etatSupport';
   let val;
@@ -2798,7 +2801,7 @@ function updateMapProgress() {
   }
   if (!total) { box.classList.remove('show'); return; }
   const pct = Math.round(faits / total * 100);
-  const col = pct === 100 ? '#4ade80' : pct >= 50 ? '#38bdf8' : '#fbbf24';
+  const col = pct === 100 ? '#4ade80' : pct >= 50 ? '#e2e8f0' : '#fbbf24';
   box.innerHTML = `<div class="mp-pct" style="color:${col}">${pct}%</div>
     <div class="mp-track"><div class="mp-fill" style="height:${pct}%;background:${col}"></div></div>
     <div class="mp-num">${faits}/${total} vérif.</div>`;
@@ -3401,7 +3404,7 @@ function armoireProgress(armId) {
   return { total, faits, pct: total ? Math.round(faits / total * 100) : 0 };
 }
 function progressBarHTML(pr, compact) {
-  const col = pr.pct === 100 ? '#4ade80' : pr.pct >= 50 ? '#38bdf8' : '#fbbf24';
+  const col = pr.pct === 100 ? '#4ade80' : pr.pct >= 50 ? '#e2e8f0' : '#fbbf24';
   return `<div class="prog-wrap${compact ? ' prog-compact' : ''}">
     <div class="prog-track"><div class="prog-fill" style="width:${pr.pct}%;background:${col}"></div></div>
     <div class="prog-lbl">${pr.faits}/${pr.total} vérifiés · ${pr.pct}%</div>
@@ -3720,7 +3723,7 @@ const CONFIG_DEFAULT = {
     'Moyen': { fill: '#facc15', border: '#ffffff' },
     'Mauvais': { fill: '#f87171', border: '#ffffff' },
     'À remplacer': { fill: '#f87171', border: '#ffffff' },
-    '_default': { fill: '#38bdf8', border: '#ffffff' }
+    '_default': { fill: '#e2e8f0', border: '#ffffff' }
   },
   orderPL: [],    // ordre des champs de la fiche point (vide = ordre d'origine)
   orderARM: [],   // ordre des champs de la fiche armoire
@@ -4821,7 +4824,7 @@ function renderSettings() {
         ${t.thumb ? `<img class="set-tpl-thumb" src="${t.thumb}" alt="">` : `<div class="set-tpl-thumb">📄</div>`}
         <div style="flex:1;min-width:0"><div class="set-color-label" style="font-weight:600">${escapeHtml(t.name)}</div>
         <div class="set-empty">${nb} caractéristique(s) · depuis le Sheet</div></div>
-        <input type="color" class="set-color" style="width:34px;height:30px" value="${t.color || '#38bdf8'}" onchange="sheetTplColor('${escapeHtml(t.name)}', this.value)" title="Couleur de l'encadré">
+        <input type="color" class="set-color" style="width:34px;height:30px" value="${t.color || '#e2e8f0'}" onchange="sheetTplColor('${escapeHtml(t.name)}', this.value)" title="Couleur de l'encadré">
         <label class="set-mini" style="display:flex;align-items:center;justify-content:center;cursor:pointer" title="Photo (rangée dans Drive)">📷
           <input type="file" accept="image/*" style="display:none" onchange="sheetTplPhoto(${si}, this)">
         </label>
@@ -4844,7 +4847,7 @@ function renderSettings() {
           <div class="set-color-label" style="font-weight:600">${escapeHtml(t.name)}</div>
           <div class="set-empty">${nb} caractéristique${nb > 1 ? 's' : ''}</div>
         </div>
-        <input type="color" class="set-color" style="width:34px;height:30px" value="${t.color || '#38bdf8'}" onchange="tplColorChanged(${i}, this.value)" title="Couleur de l'encadré">
+        <input type="color" class="set-color" style="width:34px;height:30px" value="${t.color || '#e2e8f0'}" onchange="tplColorChanged(${i}, this.value)" title="Couleur de l'encadré">
         <label class="set-mini" style="display:flex;align-items:center;justify-content:center;cursor:pointer">📷
           <input type="file" accept="image/*" style="display:none" onchange="tplPhotoChanged(${i}, this)">
         </label>
@@ -4937,7 +4940,7 @@ function renderSettings() {
   let _colorVals = colorValuesFor(CONFIG.colorField);
   if (!_colorVals.length) html += '<div class="set-empty">Aucune valeur à colorer pour ce champ (renseignez-en dans des fiches, puis rouvrez).</div>';
   _colorVals.forEach((val, i) => {
-    const c = (CONFIG.colors && CONFIG.colors[val]) || (CONFIG.colors && CONFIG.colors._default) || { fill: '#38bdf8', border: '#ffffff' };
+    const c = (CONFIG.colors && CONFIG.colors[val]) || (CONFIG.colors && CONFIG.colors._default) || { fill: '#e2e8f0', border: '#ffffff' };
     html += `<div class="set-color-row">
       <span class="set-color-label">${escapeHtml(val)}</span>
       <span class="set-color-pair">
@@ -4946,7 +4949,7 @@ function renderSettings() {
       </span>
     </div>`;
   });
-  const cdef = (CONFIG.colors && CONFIG.colors._default) || { fill: '#38bdf8', border: '#ffffff' };
+  const cdef = (CONFIG.colors && CONFIG.colors._default) || { fill: '#e2e8f0', border: '#ffffff' };
   html += `<div class="set-color-row">
     <span class="set-color-label">Autre / non renseigné</span>
     <span class="set-color-pair">
@@ -5151,7 +5154,7 @@ function removeArmCustomField(idx) {
 }
 function setStateColor(etat, color, channel) {
   if (!CONFIG.colors) CONFIG.colors = {};
-  const cur = (typeof CONFIG.colors[etat] === 'object' && CONFIG.colors[etat]) ? CONFIG.colors[etat] : { fill: '#38bdf8', border: '#ffffff' };
+  const cur = (typeof CONFIG.colors[etat] === 'object' && CONFIG.colors[etat]) ? CONFIG.colors[etat] : { fill: '#e2e8f0', border: '#ffffff' };
   cur[channel === 'border' ? 'border' : 'fill'] = color;
   CONFIG.colors[etat] = cur;
   saveConfig();
@@ -5812,6 +5815,41 @@ function scheduleSyncRetry() {
 }
 function resetSyncBackoff() { syncBackoffMs = 5000; }
 
+// Construit l'objet de colonnes d'un point (réutilisé pour l'envoi unitaire ET groupé).
+function pointToData(pt) {
+  let coordsGPS = '';
+  if (pt.lat != null && pt.lng != null) coordsGPS = pt.lat + ', ' + pt.lng;
+  const d = {
+    'ID': pt.id,
+    'ID Armoire': pt.idArmoire || '',
+    'Classe de precision': pt.classePrecision || '',
+    'Source position': pt.sourcePosition || '',
+    'Exactitude_m': pt.gpsAccuracy != null ? pt.gpsAccuracy : '',
+    'Nbr supports': pt.nbrSupports,
+    'Types de support': pt.typeSupport,
+    'État du support': pt.etatSupport,
+    'Hauteur': pt.hauteur,
+    "Types d'attache": pt.typeAttache,
+    'Nbr Luminaires': pt.nbrLuminaires,
+    'Types de luminaire': pt.typeLuminaire,
+    'État luminaires': pt.etatLuminaire,
+    'Technologie': pt.technologie,
+    'Puissance': pt.puissance,
+    'Longitude': pt.lng || '',
+    'Latitude': pt.lat || '',
+    'Coordonnees_GPS': coordsGPS,
+    'Photos': PHOTO_TYPES.filter(t => pt.photos && pt.photos[t]).join(','),
+    'Dans le Panier': pt.dansPanier ? 'TRUE' : 'FALSE',
+    'À déposer': pt.aDeposer ? 'OUI' : '',
+    'Vérifié': pt.verifie ? 'OUI' : '',
+    'Observations': pt.observations || '',
+    'Chantier': pt.chantier,
+    'Technicien': pt.technicien,
+    'Date': pt.date
+  };
+  if (pt.custom) Object.assign(d, pt.custom);
+  return d;
+}
 async function syncPointToSheets(pt) {
   if (!navigator.onLine) {
     await enqueuePoint(pt);
@@ -5821,41 +5859,7 @@ async function syncPointToSheets(pt) {
   }
   try {
     const coordsGPS = pt.lat && pt.lng ? Number(pt.lat).toFixed(6) + ', ' + Number(pt.lng).toFixed(6) : '';
-    const payload = {
-      action: 'upsert',
-      sheet: 'Points Lumineux',
-      id: pt.id,
-      data: {
-        'ID': pt.id,
-        'ID Armoire': pt.idArmoire || '',
-        'Classe de precision': pt.classePrecision || '',
-        'Source position': pt.sourcePosition || '',
-        'Exactitude_m': pt.gpsAccuracy != null ? pt.gpsAccuracy : '',
-        'Nbr supports': pt.nbrSupports,
-        'Types de support': pt.typeSupport,
-        'État du support': pt.etatSupport,
-        'Hauteur': pt.hauteur,
-        "Types d'attache": pt.typeAttache,
-        'Nbr Luminaires': pt.nbrLuminaires,
-        'Types de luminaire': pt.typeLuminaire,
-        'État luminaires': pt.etatLuminaire,
-        'Technologie': pt.technologie,
-        'Puissance': pt.puissance,
-        'Longitude': pt.lng || '',
-        'Latitude': pt.lat || '',
-        'Coordonnees_GPS': coordsGPS,
-        'Photos': PHOTO_TYPES.filter(t => pt.photos && pt.photos[t]).join(','),
-        'Dans le Panier': pt.dansPanier ? 'TRUE' : 'FALSE',
-        'À déposer': pt.aDeposer ? 'OUI' : '',
-        'Vérifié': pt.verifie ? 'OUI' : '',
-        'Observations': pt.observations || '',
-        'Chantier': pt.chantier,
-        'Technicien': pt.technicien,
-        'Date': pt.date
-      }
-    };
-    // Champs personnalisés → colonnes (créées automatiquement côté Apps Script)
-    if (pt.custom) Object.assign(payload.data, pt.custom);
+    const payload = { action: 'upsert', sheet: 'Points Lumineux', id: pt.id, data: pointToData(pt) };
     const res = await fetch(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
@@ -6056,16 +6060,44 @@ async function flushSyncQueue() {
   try {
     let items = [];
     try { items = await DB.all('queue'); } catch (e) {}
-    if (items.length) showToast('Synchronisation ' + items.length + ' éléments…');
-    for (const it of items) {
+    if (!items.length) { isSyncing = false; return; }
+    showToast('Synchronisation de ' + items.length + ' éléments…', '');
+
+    // Séparer par type : les points partent en LOTS (batchUpsert = 1 requête pour 50 points).
+    const pts = items.filter(it => !it.kind || it.kind === 'point');
+    const autres = items.filter(it => it.kind === 'del' || it.kind === 'armoire');
+
+    // — points groupés —
+    const LOT = 50;
+    let envoyes = 0;
+    for (let i = 0; i < pts.length; i += LOT) {
+      if (!navigator.onLine) break;
+      const tranche = pts.slice(i, i + LOT);
+      try {
+        const res = await fetch(SCRIPT_URL, {
+          method: 'POST', headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ action: 'batchUpsert', sheet: 'Points Lumineux',
+            items: tranche.map(it => ({ id: it.pt.id, data: pointToData(it.pt) })) })
+        });
+        const r = await res.json();
+        if (r.error) throw new Error(r.error);
+        // succès du lot → on retire ces points de la file
+        for (const it of tranche) { try { await DB.del('queue', it.id); } catch (e) {} }
+        envoyes += tranche.length;
+        showToast('Synchronisation… ' + envoyes + '/' + pts.length, '');
+      } catch (e) {
+        console.warn('Lot en échec, réessai plus tard :', e);
+        break;   // on garde le reste en file pour le prochain passage
+      }
+    }
+
+    // — armoires et suppressions : à l'unité (peu nombreuses) —
+    for (const it of autres) {
       if (!navigator.onLine) break;
       try {
         if (it.kind === 'del') await sendDeleteToSheets(it.sheet, it.targetId);
         else if (it.kind === 'armoire') await syncArmoireToSheets(it.pt);
-        else await syncPointToSheets(it.pt);
-      } catch (e) {
-        console.warn('Élément de file en échec, on passe au suivant :', e);
-      }
+      } catch (e) { console.warn('Élément en échec :', e); }
     }
   } finally {
     isSyncing = false;                          // TOUJOURS libéré, même en cas d'erreur
